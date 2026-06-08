@@ -33,7 +33,7 @@ if "%file_size%"=="0" (
 if "%has_changes%"=="1" (
     echo.
     echo ====================================================
-    echo NHAP COMMIT MESSAGE (An Enter de dung mac dinh)
+    echo NHAP COMMIT MESSAGE
     echo ====================================================
     set /p commit_msg="> Nhap mo ta thay doi: "
     if "!commit_msg!"=="" (
@@ -41,16 +41,16 @@ if "%has_changes%"=="1" (
     )
     
     echo.
-    echo [1/3] Dang gom cac file thay doi (git add .)...
+    echo [1/3] Dang gom cac file thay doi...
     git add .
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [x] Loi: Khong the add file vao vung cho.
         goto error
     )
     
     echo [2/3] Dang tao Commit: "!commit_msg!"...
     git commit -m "!commit_msg!"
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [x] Loi: Khong the tao commit.
         goto error
     )
@@ -64,40 +64,40 @@ git branch -M main
 
 :: Khuyen cao nen pull truoc khi push de tranh conflict
 echo.
-echo [*] Dang dong bo code moi tu GitHub ve (git pull --rebase)...
+echo [*] Dang dong bo code moi tu GitHub ve...
 git pull origin main --rebase
 if %errorlevel% neq 0 (
     echo.
     echo ====================================================
-    echo   [x] CANH BAO: Loi khi lay code moi tu GitHub ve!
-    echo   Co the co xung dot (conflict) can xu ly thu cong.
+    echo   [x] CANH BAO: Loi khi lay code moi tu GitHub ve.
+    echo   Co the co xung dot can xu ly thu cong.
     echo ====================================================
     goto error
 )
 
 :: Day code len
 echo.
-echo [*] Dang push code len GitHub (git push)...
+echo [*] Dang push code len GitHub...
 git push -u origin main
 if %errorlevel% neq 0 (
     echo.
     echo ====================================================
-    echo   [x] LOI: KHONG THE PUSH CODE LEN GITHUB!
-    echo   Vui long kiem tra lai mang hoac quyen ghi cua tai khoan.
+    echo   [x] LOI: KHONG THE PUSH CODE LEN GITHUB.
+    echo   Vui long kiem tra lai mang hoac quyen ghi.
     echo ====================================================
     goto error
 )
 
 echo.
 echo ====================================================
-echo   [V] UP CODE LEN GITHUB THANH CONG!
+echo   [V] UP CODE LEN GITHUB THANH CONG.
 echo ====================================================
 goto end
 
 :error
 echo.
 echo ====================================================
-echo   [X] QUA TRINH CAP NHAT CO LOI XAY RA!
+echo   [X] QUA TRÌNH CAP NHAT CO LOI XAY RA.
 echo ====================================================
 
 :end
