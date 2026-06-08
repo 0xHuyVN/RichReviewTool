@@ -33,16 +33,20 @@ def _stt_script():
     return Path(__file__).parent / "transcribe_worker.py"
 
 
-def transcribe_subprocess(audio_path: str, language: str = "vi", model: str = "base") -> dict:
-    """Run faster-whisper in a subprocess to avoid native DLL conflicts in PyInstaller bundle."""
+def transcribe_subprocess(audio_path: str, language: str = "vi", model: str = "base", use_whisperx: bool = False) -> dict:
+    """Run faster-whisper/whisperx in a subprocess to avoid native DLL conflicts in PyInstaller bundle."""
     python = _find_python()
     script = _stt_script()
     if not script.exists():
         return {"srt_path": "", "text": "", "segments": 0, "error": "worker script not found"}
 
+    cmd = [python, str(script), audio_path, "--language", language, "--model", model]
+    if use_whisperx:
+        cmd.append("--whisperx")
+
     try:
         result = subprocess.run(
-            [python, str(script), audio_path, "--language", language, "--model", model],
+            cmd,
             capture_output=True, text=True, timeout=600,
         )
         if result.returncode != 0:

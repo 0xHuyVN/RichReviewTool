@@ -14,7 +14,7 @@ def start_download(data: DownloadRequest, bg: BackgroundTasks):
             (data.url, data.platform or "auto", "waiting"),
         )
         dl_id = cur.lastrowid
-    bg.add_task(download_video, dl_id, data.url, data.quality, data.cookie_file, data.proxy)
+    bg.add_task(download_video, dl_id, data.url, data.quality, data.cookie_file, data.proxy, data.output_dir)
     return {"id": dl_id, "message": "Đã đưa tiến trình tải về vào hàng đợi"}
 
 

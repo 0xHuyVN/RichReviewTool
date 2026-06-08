@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+﻿from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from ..models.schemas import SubtitleRequest, TranslateRequest
 from ..services.whisper_stt import transcribe
 from ..services.translator import translate_text, translate_srt_async, get_job
@@ -12,7 +12,7 @@ router = APIRouter()
 @router.post("/transcribe")
 def transcribe_subtitle(data: SubtitleRequest, bg: BackgroundTasks):
     bg.add_task(transcribe, data.source_path, data.language, data.project_id)
-    return {"message": "Đã đưa tiến trình chuyển âm vào hàng đợi", "project_id": data.project_id}
+    return {"message": "ÄÃ£ Ä‘Æ°a tiáº¿n trÃ¬nh chuyá»ƒn Ã¢m vÃ o hÃ ng Ä‘á»£i", "project_id": data.project_id}
 
 
 @router.post("/import")
@@ -34,27 +34,34 @@ async def import_subtitle(project_id: int = 0, file: UploadFile = File(...)):
             (project_id, file.filename, text),
         )
         sid = cur.lastrowid
+    try:
+        from ..services.timeline_service import sync_timeline_subtitle
+        from ..services.event_bus import event_bus
+        sync_timeline_subtitle(project_id, text)
+        event_bus.publish("subtitle_updated", {"project_id": project_id, "source": file.filename, "path": str(sub_path)})
+    except Exception:
+        pass
     return {"id": sid, "path": str(sub_path)}
 
 
 @router.post("/import-path")
 async def import_subtitle_path(data: dict):
-    """Import subtitle by file path — more reliable than UploadFile for local paths."""
+    """Import subtitle by file path â€” more reliable than UploadFile for local paths."""
     import os
     from ..services.timeline_service import sync_timeline_subtitle
     raw_path = (data.get("path") or "").strip()
     project_id = data.get("project_id", 0)
-    
+
     # Try user-provided path first, then fallback to project_id-based path
     file_path = _resolve_path(raw_path) if raw_path else ""
     if (not file_path or not os.path.exists(file_path)) and project_id:
         candidate = str(SUBTITLES_DIR / f"project_{project_id}_stt.srt")
         if os.path.exists(candidate):
             file_path = candidate
-    
+
     if not file_path or not os.path.exists(file_path):
-        raise HTTPException(400, f"Không tìm thấy tệp: {raw_path or '(empty)'}")
-    
+        raise HTTPException(400, f"KhÃ´ng tÃ¬m tháº¥y tá»‡p: {raw_path or '(empty)'}")
+
     filename = os.path.basename(file_path)
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         text = f.read()
@@ -70,6 +77,11 @@ async def import_subtitle_path(data: dict):
         sync_timeline_subtitle(project_id, text)
     except Exception as e:
         print(f"Error syncing timeline subtitle: {e}")
+    try:
+        from ..services.event_bus import event_bus
+        event_bus.publish("subtitle_updated", {"project_id": project_id, "source": filename, "path": str(sub_path)})
+    except Exception:
+        pass
     return {"id": sid, "path": str(sub_path)}
 
 
@@ -114,13 +126,13 @@ def read_subtitle_file(data: dict):
         if os.path.exists(candidate):
             path = candidate
     if not path or not os.path.exists(path):
-        raise HTTPException(404, f"Không tìm thấy tệp: {path or '(empty)'}")
+        raise HTTPException(404, f"KhÃ´ng tÃ¬m tháº¥y tá»‡p: {path or '(empty)'}")
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
         return {"content": content, "filename": os.path.basename(path)}
     except Exception as e:
-        raise HTTPException(500, f"Đọc tệp thất bại: {e}")
+        raise HTTPException(500, f"Äá»c tá»‡p tháº¥t báº¡i: {e}")
 
 
 @router.post("/translate")
@@ -153,7 +165,7 @@ def translate_progress(job_id: str):
     """Poll translation job status and progress."""
     job = get_job(job_id)
     if not job:
-        raise HTTPException(404, "Không tìm thấy tiến trình")
+        raise HTTPException(404, "KhÃ´ng tÃ¬m tháº¥y tiáº¿n trÃ¬nh")
     return {
         "job_id": job_id,
         "status": job.get("status", "unknown"),
@@ -169,11 +181,11 @@ def detect_streams(data: dict):
     import json
     import os
     from ..config import FFPROBE_PATH
-    
+
     video_path = data.get("path", "")
     if not video_path or not os.path.exists(video_path):
-        raise HTTPException(400, "Đường dẫn video không hợp lệ")
-        
+        raise HTTPException(400, "ÄÆ°á»ng dáº«n video khÃ´ng há»£p lá»‡")
+
     cmd = [
         FFPROBE_PATH, "-v", "quiet",
         "-print_format", "json",
@@ -184,7 +196,7 @@ def detect_streams(data: dict):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
         info = json.loads(result.stdout)
         streams = info.get("streams", [])
-        
+
         detected = []
         for i, s in enumerate(streams):
             tags = s.get("tags", {})
@@ -208,18 +220,18 @@ def extract_stream(data: dict):
     import os
     from ..config import FFMPEG_PATH, SUBTITLES_DIR
     from ..database import db_cursor
-    
+
     video_path = data.get("path", "")
     stream_index = data.get("index", 0)
     project_id = data.get("project_id", 0)
-    
+
     if not video_path or not os.path.exists(video_path):
-        raise HTTPException(400, "Đường dẫn video không hợp lệ")
-        
+        raise HTTPException(400, "ÄÆ°á»ng dáº«n video khÃ´ng há»£p lá»‡")
+
     filename = os.path.basename(video_path)
     output_name = os.path.splitext(filename)[0] + f"_extracted_{stream_index}.srt"
     output_path = str(SUBTITLES_DIR / f"sub_{project_id}_{output_name}")
-    
+
     cmd = [
         FFMPEG_PATH, "-y",
         "-i", video_path,
@@ -237,11 +249,11 @@ def extract_stream(data: dict):
                 output_path
             ]
             subprocess.run(cmd_conv, capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
-            
+
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             with open(output_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-                
+
             with db_cursor() as cur:
                 cur.execute(
                     "INSERT INTO subtitles (project_id, source, content) VALUES (?,?,?)",
@@ -250,9 +262,9 @@ def extract_stream(data: dict):
                 sid = cur.lastrowid
             return {"id": sid, "path": output_path, "content": content}
         else:
-            raise RuntimeError(f"Trích xuất phụ đề thất bại. File đầu ra rỗng hoặc không hỗ trợ.")
+            raise RuntimeError(f"TrÃ­ch xuáº¥t phá»¥ Ä‘á» tháº¥t báº¡i. File Ä‘áº§u ra rá»—ng hoáº·c khÃ´ng há»— trá»£.")
     except Exception as e:
-        raise HTTPException(500, f"Lỗi khi trích xuất phụ đề: {str(e)}")
+        raise HTTPException(500, f"Lá»—i khi trÃ­ch xuáº¥t phá»¥ Ä‘á»: {str(e)}")
 
 
 @router.post("/transcribe-video")
@@ -261,13 +273,15 @@ def transcribe_video_endpoint(data: dict, bg: BackgroundTasks):
     video_path = data.get("path", "")
     project_id = data.get("project_id", 0)
     language = data.get("language", "vi")
-    
+    vocal_separation = data.get("vocal_separation")
+    use_whisperx = data.get("whisperx", False)
+
     if not video_path or not os.path.exists(video_path):
-        raise HTTPException(400, "Đường dẫn video không hợp lệ")
-        
+        raise HTTPException(400, "ÄÆ°á»ng dáº«n video khÃ´ng há»£p lá»‡")
+
     from ..services.whisper_stt import transcribe_video
-    bg.add_task(transcribe_video, video_path, language, project_id)
-    return {"message": "Đã bắt đầu nhận dạng giọng nói (STT) từ video. Tiến trình đang chạy ngầm..."}
+    bg.add_task(transcribe_video, video_path, language, project_id, vocal_separation, use_whisperx)
+    return {"message": "ÄÃ£ báº¯t Ä‘áº§u nháº­n dáº¡ng giá»ng nÃ³i (STT) tá»« video. Tiáº¿n trÃ¬nh Ä‘ang cháº¡y ngáº§m..."}
 
 
 @router.post("/export")
@@ -279,11 +293,29 @@ def export_subtitle(project_id: int, fmt: str = "srt", font: str = "Arial", size
             (project_id,),
         ).fetchone()
         if not row:
-            raise HTTPException(404, "Không tìm thấy phụ đề nào")
-    
+            raise HTTPException(404, "KhÃ´ng tÃ¬m tháº¥y phá»¥ Ä‘á» nÃ o")
+
     style = {"font": font, "size": size, "color": color, "shadow": shadow}
     try:
         out = export_subtitle_file(row["content"], fmt, project_id, style)
         return {"path": out}
     except Exception as e:
-        raise HTTPException(500, f"Xuất phụ đề thất bại: {e}")
+        raise HTTPException(500, f"Xuáº¥t phá»¥ Ä‘á» tháº¥t báº¡i: {e}")
+
+
+@router.post("/ocr-video")
+def ocr_video_endpoint(data: dict, bg: BackgroundTasks):
+    import os
+    video_path = data.get("path", "")
+    project_id = data.get("project_id", 0)
+    region = data.get("region")
+
+    if not video_path or not os.path.exists(video_path):
+        raise HTTPException(400, "ÄÆ°á»ng dáº«n video khÃ´ng há»£p lá»‡")
+
+    from ..services.ocr_service import extract_hard_subtitles, is_ocr_available
+    if not is_ocr_available():
+        raise HTTPException(400, "RapidOCR hoáº·c OpenCV chÆ°a Ä‘Æ°á»£c cÃ i Ä‘áº·t.")
+
+    bg.add_task(extract_hard_subtitles, video_path, project_id, region)
+    return {"message": "ÄÃ£ báº¯t Ä‘áº§u trÃ­ch xuáº¥t sub cá»©ng báº±ng OCR. Tiáº¿n trÃ¬nh Ä‘ang cháº¡y ngáº§m..."}

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
 from ..models.schemas import TTSRequest
 from ..services.tts_engine import synthesize
-from ..services.voice_clone import clone_voice
 from ..config import VOICES_DIR
 import os
 
@@ -41,7 +40,28 @@ def train_voice(sample_path: str, name: str, bg: BackgroundTasks):
 def list_clones():
     clones_dir = VOICES_DIR / "clones"
     clones_dir.mkdir(exist_ok=True)
-    return [{"name": d.name} for d in clones_dir.iterdir() if d.is_dir()]
+    result = []
+    for d in clones_dir.iterdir():
+        if d.is_dir():
+            has_prompt = (d / "voice_prompt.npz").exists()
+            preview_path = str(d / "preview.wav") if (d / "preview.wav").exists() else None
+            done_text = ""
+            done_file = d / "done.txt"
+            if done_file.exists():
+                done_text = done_file.read_text()
+            result.append({"name": d.name, "ready": has_prompt, "preview": preview_path, "status": done_text})
+    return result
+
+
+@router.post("/clone/generate")
+def generate_clone_tts(text: str, clone_name: str):
+    out = str(VOICES_DIR / f"clone_{hash(text)}_{clone_name}.wav")
+    from ..services.tts_engine import synthesize
+    synthesize(text, "clone", clone_name, 1.0, out)
+    if os.path.exists(out):
+        from fastapi.responses import FileResponse
+        return FileResponse(out, media_type="audio/wav", filename="clone_output.wav")
+    return {"message": "Không thể tạo giọng nói clone", "output": None}
 
 
 @router.get("/clone/export")
@@ -94,11 +114,14 @@ def get_edge_voices():
 
 @router.get("/providers")
 def list_providers():
+    clones_dir = VOICES_DIR / "clones"
+    clone_voices = [d.name for d in clones_dir.iterdir() if d.is_dir() and (d / "voice_prompt.npz").exists()]
     return {
         "providers": [
             {"id": "edge", "name": "Edge TTS (free)", "voices": ["vi-VN-NamMinhNeural", "vi-VN-HoaiMyNeural"]},
             {"id": "google", "name": "Google TTS (free)", "voices": ["vi", "en"]},
             {"id": "azure", "name": "Azure TTS", "voices": ["vi-VN-NamMinhNeural", "vi-VN-HoaiMyNeural"]},
             {"id": "elevenlabs", "name": "ElevenLabs", "voices": ["Rachel", "Domi", "Bella"]},
+            {"id": "clone", "name": "Voice Clone (Bark)", "voices": clone_voices or ["Chưa có giọng clone nào"]},
         ]
     }

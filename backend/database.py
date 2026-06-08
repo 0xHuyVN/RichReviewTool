@@ -76,6 +76,7 @@ def init_db():
             status TEXT DEFAULT 'waiting',
             output_path TEXT,
             progress REAL DEFAULT 0,
+            error TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         );
 
@@ -213,3 +214,10 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now','localtime'))
         );
         """)
+        _ensure_column(cur, "downloads", "error", "TEXT")
+
+
+def _ensure_column(cur, table: str, column: str, definition: str):
+    existing = [row["name"] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in existing:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

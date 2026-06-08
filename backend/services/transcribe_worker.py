@@ -1,17 +1,84 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 import sys
 import json
 import argparse
 from pathlib import Path
-
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("audio_path")
     parser.add_argument("--language", default="vi")
     parser.add_argument("--model", default="base")
+    parser.add_argument("--whisperx", action="store_true", help="Use WhisperX for word-level alignment")
     args = parser.parse_args()
 
+    use_whisperx = args.whisperx
+    if use_whisperx:
+        try:
+            import whisperx
+        except ImportError:
+            # Fallback to faster-whisper
+            use_whisperx = False
+
+    if use_whisperx:
+        try:
+            device = "cpu"
+            compute_type = "int8"
+
+            # 1. Load model and transcribe
+            model = whisperx.load_model(args.model, device, compute_type=compute_type, language=args.language)
+            audio = whisperx.load_audio(args.audio_path)
+            raw_result = model.transcribe(audio, batch_size=16)
+
+            # 2. Align whisper output
+            try:
+                model_a, metadata = whisperx.load_align_model(language_code=raw_result["language"], device=device)
+                aligned_result = whisperx.align(raw_result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+                segments_data = aligned_result["segments"]
+            except Exception as align_err:
+                # Fallback to raw segments if alignment fails
+                segments_data = raw_result["segments"]
+
+            srt_lines = []
+            for i, seg in enumerate(segments_data, 1):
+                start = _fmt_time(seg.get("start", 0))
+                end = _fmt_time(seg.get("end", 0))
+
+                # Format text with word timing: Word (start_time)
+                words_list = seg.get("words", [])
+                if words_list:
+                    word_parts = []
+                    for w in words_list:
+                        word_str = w.get("word", "").strip()
+                        w_start = w.get("start")
+                        if w_start is not None:
+                            word_parts.append(f"{word_str} ({w_start:.2f})")
+                        else:
+                            word_parts.append(word_str)
+                    text = " ".join(word_parts).strip()
+                else:
+                    text = seg.get("text", "").strip()
+
+                srt_lines.append(f"{i}\n{start} --> {end}\n{text}\n")
+
+            srt_content = "\n".join(srt_lines)
+            full_text = " ".join(s.get("text", "") for s in segments_data)
+
+            result = {
+                "srt_path": "",
+                "text": full_text,
+                "segments": len(segments_data),
+                "srt_content": srt_content,
+                "language": raw_result.get("language", args.language),
+                "whisperx_aligned": True
+            }
+            print(json.dumps(result, ensure_ascii=False))
+            return
+        except Exception as wx_err:
+            # Fallback to faster-whisper on error
+            pass
+
+    # Standard faster-whisper pipeline
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -39,6 +106,7 @@ def main():
             "segments": len(seg_list),
             "srt_content": srt_content,
             "language": info.language if hasattr(info, "language") else args.language,
+            "whisperx_aligned": False
         }
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:

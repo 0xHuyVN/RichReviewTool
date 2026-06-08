@@ -65,7 +65,7 @@ def _download(item_id: int, project_id: int, params: dict) -> bool:
         cur.execute("INSERT INTO downloads (url, platform, status) VALUES (?,?,?)", (url, params.get("platform", "auto"), "waiting"))
         dl_id = cur.lastrowid
 
-    download_video(dl_id, url, params.get("quality", "best"), params.get("cookie_file"), params.get("proxy"))
+    download_video(dl_id, url, params.get("quality", "best"), params.get("cookie_file"), params.get("proxy"), params.get("output_dir"))
 
     with db_cursor() as cur:
         row = cur.execute("SELECT * FROM downloads WHERE id=?", (dl_id,)).fetchone()
@@ -73,6 +73,7 @@ def _download(item_id: int, project_id: int, params: dict) -> bool:
             out_path = row["output_path"]
             _register_asset("videos", out_path, project_id)
             _log(item_id, "info", f"Downloaded to: {out_path}")
+            _set_output_path(item_id, out_path)
             _update(item_id, "completed", 100)
             return True
 
@@ -86,15 +87,13 @@ def _transcribe(item_id: int, project_id: int, video_path: str, params: dict) ->
     if not video_path or not os.path.exists(video_path):
         raise FileNotFoundError(f"Video not found: {video_path}")
 
-    _log(item_id, "info", "Extracting audio...")
-    from .ffmpeg_utils import extract_audio
-    audio_path = extract_audio(video_path)
-    _update(item_id, "running", 20)
-
-    _log(item_id, "info", "Transcribing with Whisper...")
-    from .whisper_stt import transcribe
     lang = params.get("language", "vi")
-    result = transcribe(audio_path, lang, project_id)
+    vocal_sep = params.get("vocal_separation", None)
+    use_whisperx = params.get("whisperx", False)
+
+    _log(item_id, "info", "Transcribing with Whisper (vocal_separation={}, whisperx={})...".format(vocal_sep, use_whisperx))
+    from .whisper_stt import transcribe_video
+    result = transcribe_video(video_path, lang, project_id, vocal_separation=vocal_sep, use_whisperx=use_whisperx)
 
     srt_path = result.get("srt_path", "")
     if srt_path and os.path.exists(srt_path):
@@ -167,7 +166,11 @@ def _tts(item_id: int, project_id: int, params: dict) -> bool:
     if align:
         _log(item_id, "info", f"Generating Timeline-aligned TTS via {provider}")
         from .tts_engine import synthesize_timeline
-        synthesize_timeline(row["content"], provider, voice, speed, tts_output, api_key=api_key)
+        def _tts_progress(done, total):
+            if total:
+                pct = 60 + min(15, int((done / total) * 15))
+                _update(item_id, "running", pct)
+        synthesize_timeline(row["content"], provider, voice, speed, tts_output, api_key=api_key, progress_cb=_tts_progress)
     else:
         text = _extract_text_from_srt(row["content"])
         _log(item_id, "info", f"Generating flat TTS via {provider} ({len(text)} chars)")
@@ -191,13 +194,15 @@ def _render(item_id: int, project_id: int, video_path: str, params: dict) -> boo
         raise FileNotFoundError(f"Video not found: {video_path}")
 
     output_name = params.get("output_name", f"output_{project_id}")
+    output_format = str(params.get("format", "mp4")).lower().lstrip(".") or "mp4"
     output_dir = params.get("output_dir")
     if output_dir and len(output_dir.strip(" .:\\/")) > 0 and output_dir != "........":
         export_dir = Path(output_dir)
     else:
         export_dir = EXPORTS_DIR / f"project_{project_id}"
     export_dir.mkdir(parents=True, exist_ok=True)
-    final_output = str(export_dir / f"{output_name}.mp4")
+    output_stem = Path(output_name).stem
+    final_output = str(export_dir / f"{output_stem}.{output_format}")
 
     _log(item_id, "info", f"Rendering video to {final_output}")
 
@@ -213,9 +218,19 @@ def _render(item_id: int, project_id: int, video_path: str, params: dict) -> boo
             srt_path = str(SUBTITLES_DIR / f"project_{project_id}_burn.srt")
             Path(srt_path).write_text(row["content"], encoding="utf-8")
             _log(item_id, "info", "Burning subtitles...")
+
+            sub_style = {
+                "font": params.get("subtitle_font", "Arial"),
+                "size": int(params.get("subtitle_size", 42)),
+                "color": params.get("subtitle_color", "#FFFFFF"),
+                "shadow": params.get("subtitle_shadow", "soft"),
+            }
+            sub_region = params.get("subtitle_region", None)
+            remove_hardsub = bool(params.get("remove_hardsub", False))
+
             from .ffmpeg_utils import burn_subtitle
-            burned = str(export_dir / f"{output_name}_subbed.mp4")
-            burn_subtitle(video_path, srt_path, burned)
+            burned = str(export_dir / f"{output_stem}_subbed.mp4")
+            burn_subtitle(video_path, srt_path, burned, region=sub_region, style=sub_style, remove_hardsub=remove_hardsub)
             video_path = burned
             _update(item_id, "running", 40)
 
@@ -232,7 +247,8 @@ def _render(item_id: int, project_id: int, video_path: str, params: dict) -> boo
     # Step 3: Apply effects (scale, codec, bitrate) — use temp file to avoid same-file conflict
     _log(item_id, "info", "Applying encode settings...")
     from .ffmpeg_utils import render_video
-    encoded_tmp = final_output.replace(".mp4", "_encoded.mp4")
+    final_path = Path(final_output)
+    encoded_tmp = str(final_path.with_name(f"{final_path.stem}_encoded{final_path.suffix}"))
     if not render_video(video_path, encoded_tmp, params):
         raise RuntimeError(f"FFmpeg render_video failed for {video_path}")
     if not os.path.exists(encoded_tmp):
@@ -244,11 +260,12 @@ def _render(item_id: int, project_id: int, video_path: str, params: dict) -> boo
     with db_cursor() as cur:
         cur.execute(
             "INSERT INTO exports (project_id, input_path, output_path, format, file_size, status) VALUES (?,?,?,?,?,?)",
-            (project_id, video_path, final_output, "mp4", file_size, "completed"),
+            (project_id, video_path, final_output, output_format, file_size, "completed"),
         )
 
     _register_asset("videos", final_output, project_id)
     _log(item_id, "info", f"Render complete: {final_output}")
+    _set_output_path(item_id, final_output)
     _update(item_id, "completed", 100)
     return True
 
@@ -268,7 +285,7 @@ def _full(item_id: int, project_id: int, input_path: str, params: dict) -> bool:
             cur.execute("INSERT INTO downloads (url, platform, status) VALUES (?,?,?)",
                         (params["url"], params.get("platform", "auto"), "waiting"))
             dl_id = cur.lastrowid
-        download_video(dl_id, params["url"], params.get("quality", "best"), params.get("cookie_file"), params.get("proxy"))
+        download_video(dl_id, params["url"], params.get("quality", "best"), params.get("cookie_file"), params.get("proxy"), params.get("output_dir"))
         with db_cursor() as cur:
             row = cur.execute("SELECT * FROM downloads WHERE id=?", (dl_id,)).fetchone()
             if row and row["output_path"]:
@@ -340,6 +357,7 @@ def _export_audio(item_id: int, project_id: int, input_path: str, params: dict) 
     from .ffmpeg_utils import export_audio
     export_audio(input_path, out, fmt)
     _register_asset("audio", out, project_id)
+    _set_output_path(item_id, out)
     _update(item_id, "completed", 100)
     return True
 
@@ -378,6 +396,11 @@ def _process_music(item_id: int, project_id: int, input_path: str, params: dict)
 def _update(item_id: int, status: str, progress: float = None, error: str = None):
     from .queue_manager import update_item_status
     update_item_status(item_id, status, progress, error)
+
+
+def _set_output_path(item_id: int, output_path: str):
+    with db_cursor() as cur:
+        cur.execute("UPDATE queue_items SET output_path=? WHERE id=?", (output_path, item_id))
 
 
 def _log(item_id: int, level: str, message: str):

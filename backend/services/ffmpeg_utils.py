@@ -1,8 +1,11 @@
 import subprocess
 import json
 import os
+import re
+import shutil
+import tempfile
 from pathlib import Path
-from ..config import FFMPEG_PATH, FFPROBE_PATH, EXPORTS_DIR
+from ..config import FFMPEG_PATH, FFPROBE_PATH, EXPORTS_DIR, CACHE_DIR
 
 
 def run_ffmpeg(cmd: list, timeout: int = 3600) -> bool:
@@ -132,6 +135,213 @@ def merge_videos(file_paths: list, output_path: str):
     return result
 
 
+def blur_subtitle_region(video_path: str, output_path: str, region: dict) -> bool:
+    """Blur a rectangular region in the video using FFmpeg.
+
+    Blurs subtitle area (crop -> boxblur -> overlay) to remove hardcoded subs.
+    Region: {x, y, width, height} as fractions (0-1) of video dimensions.
+    """
+    info = get_video_info(video_path)
+    vw, vh = info.get("width", 1920), info.get("height", 1080)
+    if not vw or not vh:
+        return False
+
+    def to_px(val, dim):
+        return int(float(val) * dim) if float(val) <= 1 else int(float(val))
+
+    rx = max(0, to_px(region["x"], vw))
+    ry = max(0, to_px(region["y"], vh))
+    rw = min(vw - rx, max(1, to_px(region.get("width", 0.7), vw)))
+    rh = min(vh - ry, max(1, to_px(region.get("height", 0.15), vh)))
+
+    filter_complex = (
+        f"[0:v]crop=w={rw}:h={rh}:x={rx}:y={ry},"
+        f"boxblur=lr=2:lp=1[blurred];"
+        f"[0:v][blurred]overlay=x={rx}:y={ry}[out]"
+    )
+    cmd = [
+        "-i", video_path,
+        "-filter_complex", filter_complex,
+        "-map", "[out]", "-map", "0:a",
+        "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+        "-c:a", "copy",
+        "-y", output_path,
+    ]
+    return run_ffmpeg(cmd)
+
+
+def _srt_to_region_ass(srt_content: str, video_w: int, video_h: int,
+                       region: dict, style: dict) -> str:
+    """Convert SRT content to ASS with text constrained to a region box.
+
+    Auto-scales font, aligns text in box, wraps lines.
+    """
+    font = style.get("font", "Arial")
+    size = int(style.get("size", 42))
+    color = style.get("color", "#FFFFFF")
+    shadow = style.get("shadow", "Soft")
+
+    def to_px(val, dim):
+        return int(float(val) * dim) if float(val) <= 1 else int(float(val))
+
+    rx = to_px(region["x"], video_w)
+    ry = to_px(region["y"], video_h)
+    rw = to_px(region.get("width", 0.7), video_w)
+    rh = to_px(region.get("height", 0.15), video_h)
+    align_str = region.get("alignment", "bottom-center")
+
+    # Map alignment string to ASS alignment number and calculate pos anchor
+    # ASS Alignments: 1=bottom-left, 2=bottom-center, 3=bottom-right
+    # 4=middle-left, 5=middle-center, 6=middle-right
+    # 7=top-left, 8=top-center, 9=top-right
+    align_map = {
+        "bottom-center": (2, rx + rw // 2, ry + rh),
+        "top-center": (8, rx + rw // 2, ry),
+        "center": (5, rx + rw // 2, ry + rh // 2),
+        "bottom-left": (1, rx, ry + rh),
+        "bottom-right": (3, rx + rw, ry + rh),
+        "top-left": (7, rx, ry),
+        "top-right": (9, rx + rw, ry),
+        "custom": (2, rx + rw // 2, ry + rh)
+    }
+
+    ass_align, cx, cy = align_map.get(align_str, (2, rx + rw // 2, ry + rh))
+    base_fs = min(size, max(12, int(rh * 0.7)))
+
+    color = color.lstrip("#")
+    if len(color) == 6:
+        ass_color = f"&H00{color[4:6]}{color[2:4]}{color[0:2]}"
+    else:
+        ass_color = "&H00FFFFFF"
+
+    shadow_map = {"soft": "2", "hard": "4", "off": "0"}
+    shadow_val = shadow_map.get(shadow.lower(), "2")
+
+    def srt_to_ass_time(t_str):
+        t = t_str.strip().replace(",", ".")
+        if t.startswith("0") and len(t) >= 12:
+            t = t[1:]
+        if len(t) > 10:
+            t = t[:10]
+        return t
+
+    ass = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {video_w}\n"
+        f"PlayResY: {video_h}\n"
+        "WrapStyle: 1\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, BackColour, "
+        "Bold, Italic, BorderStyle, Outline, Shadow, Alignment, "
+        "MarginL, MarginR, MarginV\n"
+        f"Style: Default,{font},{base_fs},{ass_color},&H00000000,"
+        f"0,0,1,2,{shadow_val},{ass_align},0,0,0\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, "
+        "MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+
+    blocks = re.split(r'\n\s*\n', srt_content.strip())
+    for block in blocks:
+        lines = block.strip().split('\n')
+        if len(lines) < 3:
+            continue
+        if not lines[0].isdigit():
+            continue
+        if '-->' not in lines[1]:
+            continue
+
+        parts = lines[1].split('-->')
+        start = srt_to_ass_time(parts[0])
+        end = srt_to_ass_time(parts[1])
+        text = '\\N'.join(l.strip() for l in lines[2:] if l.strip())
+
+        max_chars = max(len(l) for l in text.split('\\N'))
+        fs = max(12, min(base_fs, int(rw / (max(1, max_chars) * 0.55))))
+
+        override = f"{{\\fs{fs}\\pos({cx},{cy})}}" if fs != base_fs else f"{{\\pos({cx},{cy})}}"
+        ass += f"Dialogue: 0,{start},{end},Default,,0,0,0,,{override}{text}\n"
+
+    return ass
+
+
+def burn_subtitle(video_path: str, subtitle_path: str, output_path: str = None,
+                  region: dict = None, style: dict = None, remove_hardsub: bool = False) -> str:
+    """Burn subtitles into video.
+
+    If remove_hardsub and region are provided, blurs the region first.
+    If region is provided, positions new subtitles inside the region box.
+    """
+    if not output_path:
+        output_path = video_path.replace(".mp4", "_subbed.mp4")
+
+    current_input = video_path
+    tmp_blurred = None
+
+    if remove_hardsub and region and region.get("width", 0) > 0 and region.get("height", 0) > 0:
+        tmp_dir = Path(CACHE_DIR) / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp_blurred = str(tmp_dir / f"blur_{os.getpid()}_{os.urandom(4).hex()}.mp4")
+        if blur_subtitle_region(video_path, tmp_blurred, region):
+            current_input = tmp_blurred
+
+    safe_src = _temp_copy(subtitle_path)
+    sub_ext = Path(subtitle_path).suffix.lower()
+    safe_path = _filter_path(safe_src)
+
+    if sub_ext == ".srt" and region:
+        info = get_video_info(video_path)
+        vw = info.get("width", 1920) or 1920
+        vh = info.get("height", 1080) or 1080
+        ass_content = _srt_to_region_ass(
+            Path(subtitle_path).read_text(encoding="utf-8"),
+            vw, vh, region, style or {}
+        )
+        ass_tmp = str(tmp_dir / f"sub_region_{os.getpid()}_{os.urandom(4).hex()}.ass")
+        Path(ass_tmp).write_text(ass_content, encoding="utf-8")
+        safe_ass = _temp_copy(ass_tmp)
+        safe_path = _filter_path(safe_ass)
+        cmd = [
+            "-i", current_input,
+            "-vf", f"ass=filename='{safe_path}'",
+            "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+            "-c:a", "copy",
+            "-y", output_path,
+        ]
+    elif sub_ext == ".srt":
+        cmd = [
+            "-i", current_input,
+            "-vf", f"subtitles=filename='{safe_path}'",
+            "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+            "-c:a", "copy",
+            "-y", output_path,
+        ]
+    elif sub_ext == ".ass":
+        cmd = [
+            "-i", current_input,
+            "-vf", f"ass=filename='{safe_path}'",
+            "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+            "-c:a", "copy",
+            "-y", output_path,
+        ]
+    else:
+        cmd = ["-i", current_input, "-c", "copy", "-y", output_path]
+
+    result = run_ffmpeg(cmd)
+    if tmp_blurred and os.path.exists(tmp_blurred):
+        try:
+            os.remove(tmp_blurred)
+        except Exception:
+            pass
+
+    if not result:
+        raise RuntimeError(f"FFmpeg burn_subtitle failed for {video_path}")
+    if not os.path.exists(output_path):
+        raise RuntimeError(f"burn_subtitle output not created: {output_path}")
+    return output_path
+
+
 def _temp_copy(path: str) -> str:
     """Copy file to %TEMP% to avoid special chars in path (e.g. &)."""
     import shutil
@@ -145,41 +355,7 @@ def _filter_path(path: str) -> str:
     """Return POSIX path with colon escaped for use inside filename='...'."""
     return path.replace("\\", "/").replace(":", "\\:")
 
-def burn_subtitle(video_path: str, subtitle_path: str, output_path: str = None) -> str:
-    """Burn subtitles into video using FFmpeg subtitles filter."""
-    if not output_path:
-        output_path = video_path.replace(".mp4", "_subbed.mp4")
 
-    # copy to %TEMP% to avoid & etc in the path
-    safe_src = _temp_copy(subtitle_path)
-    sub_ext = Path(subtitle_path).suffix.lower()
-
-    if sub_ext == ".srt":
-        safe_path = _filter_path(safe_src)
-        cmd = [
-            "-i", video_path,
-            "-vf", f"subtitles=filename='{safe_path}'",
-            "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-            "-c:a", "copy",
-            "-y", output_path,
-        ]
-    elif sub_ext == ".ass":
-        safe_path = _filter_path(safe_src)
-        cmd = [
-            "-i", video_path,
-            "-vf", f"ass=filename='{safe_path}'",
-            "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-            "-c:a", "copy",
-            "-y", output_path,
-        ]
-    else:
-        cmd = ["-i", video_path, "-c", "copy", "-y", output_path]
-
-    if not run_ffmpeg(cmd):
-        raise RuntimeError(f"FFmpeg burn_subtitle failed for {video_path}")
-    if not os.path.exists(output_path):
-        raise RuntimeError(f"burn_subtitle output not created: {output_path}")
-    return output_path
 
 
 def replace_audio(video_path: str, audio_path: str, output_path: str = None) -> str:

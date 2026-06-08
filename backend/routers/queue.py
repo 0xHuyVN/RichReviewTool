@@ -21,11 +21,18 @@ async def queue_events(request: Request):
                     if await request.is_disconnected():
                         break
                     try:
-                        await asyncio.to_thread(q.get, timeout=5)
-                        with db_cursor() as cur:
-                            rows = cur.execute("SELECT * FROM queue_items ORDER BY priority DESC, created_at").fetchall()
-                        queue_data = [dict(r) for r in rows]
-                        yield f"data: {json.dumps({'type': 'queue_changed', 'data': queue_data})}\n\n"
+                        payload = await asyncio.to_thread(q.get, timeout=5)
+                        try:
+                            event = json.loads(payload)
+                        except Exception:
+                            event = {"type": "queue_changed", "data": None}
+
+                        if event.get("type") == "queue_changed":
+                            with db_cursor() as cur:
+                                rows = cur.execute("SELECT * FROM queue_items ORDER BY priority DESC, created_at").fetchall()
+                            event["data"] = [dict(r) for r in rows]
+
+                        yield f"data: {json.dumps(event)}\n\n"
                     except qmod.Empty:
                         yield ": heartbeat\n\n"
             finally:

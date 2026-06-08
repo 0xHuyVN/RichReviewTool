@@ -359,9 +359,17 @@
                         <option value="auto">Tự động phát hiện (auto)</option>
                       </select>
                     </div>
+                    <label class="feature-item custom-checkbox" style="margin-top:8px">
+                      <input type="checkbox" checked id="chk-sub-whisperx" />
+                      <span class="chk-box"></span>
+                      <span class="field-label">WhisperX word alignment</span>
+                    </label>
                     <div class="feat-row" style="margin-top: 10px;">
                       <button class="action-btn" id="btn-sub-transcribe" style="background: var(--accent); color: white; border: none; padding: 6px 15px;">
                         <i class="ri-mic-line"></i> Nhận diện ngay
+                      </button>
+                      <button class="action-btn" id="btn-sub-ocr" style="background:#805ad5;color:white;border:none;padding:6px 15px;margin-left:8px">
+                        <i class="ri-scan-2-line"></i> RapidOCR sub cung
                       </button>
                     </div>
                   </div>
@@ -625,12 +633,54 @@
               <div class="preview-canvas" id="preview-canvas">
                 <video id="video-player" style="width:100%;height:100%;object-fit:contain;background:#000" controls></video>
                 <div class="no-video-msg" id="no-video-msg">Chưa có video</div>
+                <div class="sub-box-overlay" id="sub-box-overlay" style="display:none">
+                  <div class="sub-box-inner">
+                    <div class="sub-box-label">Vùng phụ đề</div>
+                  </div>
+                  <div class="sub-box-handle sub-box-nw"></div>
+                  <div class="sub-box-handle sub-box-ne"></div>
+                  <div class="sub-box-handle sub-box-sw"></div>
+                  <div class="sub-box-handle sub-box-se"></div>
+                </div>
+                <!-- Subtitle Region Controls -->
+                <div class="sub-region-controls" id="sub-region-controls" style="display:none">
+                  <div class="sub-region-row">
+                    <span class="sub-region-title"><i class="ri-layout-bottom-line"></i> Vùng phụ đề</span>
+                    <select class="select-input" id="sel-sub-alignment" style="width:90px;height:20px;font-size:10px" title="Căn chỉnh">
+                      <option value="bottom-center">Dưới giữa</option>
+                      <option value="top-center">Trên giữa</option>
+                      <option value="center">Giữa</option>
+                      <option value="bottom-left">Dưới trái</option>
+                      <option value="bottom-right">Dưới phải</option>
+                      <option value="top-left">Trên trái</option>
+                      <option value="top-right">Trên phải</option>
+                      <option value="custom">Tùy chỉnh</option>
+                    </select>
+                    <button class="action-btn" id="btn-sub-region-reset" style="height:20px;padding:1px 6px;font-size:9px;text-transform:none;display:inline-flex;align-items:center;justify-content:center" title="Đặt lại mặc định"><i class="ri-restart-line"></i></button>
+                  </div>
+                  <div class="sub-region-row">
+                    <label class="sub-region-lbl">X:</label>
+                    <input type="number" class="text-input sub-region-inp" id="inp-sub-x" value="10" min="0" max="100" step="1" title="Vị trí ngang (%)" />
+                    <span class="sub-region-unit">%</span>
+                    <label class="sub-region-lbl">Y:</label>
+                    <input type="number" class="text-input sub-region-inp" id="inp-sub-y" value="78" min="0" max="100" step="1" title="Vị trí dọc (%)" />
+                    <span class="sub-region-unit">%</span>
+                    <label class="sub-region-lbl">W:</label>
+                    <input type="number" class="text-input sub-region-inp" id="inp-sub-w" value="80" min="5" max="100" step="1" title="Chiều rộng (%)" />
+                    <span class="sub-region-unit">%</span>
+                    <label class="sub-region-lbl">H:</label>
+                    <input type="number" class="text-input sub-region-inp" id="inp-sub-h" value="15" min="5" max="100" step="1" title="Chiều cao (%)" />
+                    <span class="sub-region-unit">%</span>
+                  </div>
+                </div>
               </div>
               <div class="preview-sidebar">
                 <button class="preview-tool" id="btn-preview-crop" title="Cắt hình"><i class="ri-crop-line"></i></button>
                 <button class="preview-tool" id="btn-preview-image" title="Ảnh"><i class="ri-image-line"></i></button>
                 <button class="preview-tool" id="btn-preview-gallery" title="Gallery"><i class="ri-gallery-line"></i></button>
                 <button class="preview-tool" id="btn-preview-text" title="Chèn chữ"><i class="ri-font-size"></i></button>
+                <button class="preview-tool" id="btn-preview-sub-box" title="Vùng phụ đề"><i class="ri-crop-2-line"></i></button>
+                <button class="preview-tool" id="btn-preview-sub-blur" title="Làm mờ phụ đề gốc"><i class="ri-blur-off-line"></i></button>
               </div>
               </div>
               <div class="multi-track-timeline" id="scene-timeline">
@@ -741,6 +791,15 @@
             <div class="progress-bar-fill" id="download-progress" style="width:0%"></div>
           </div>
           <span class="progress-pct" id="download-pct">0%</span>
+        </div>
+        <div class="panel-row mt4">
+          <label class="field-label" style="width:90px">Lưu vào:</label>
+          <input type="text" class="text-input flex1" id="inp-download-output" placeholder="Mặc định: data/downloads" />
+          <button class="icon-btn" id="btn-browse-download-output" title="Chọn thư mục"><i class="ri-folder-open-line"></i></button>
+        </div>
+        <div class="panel-row mt4" id="download-output-row" style="display:none">
+          <label class="field-label" style="width:90px">File tải về:</label>
+          <input type="text" class="text-input flex1" id="inp-downloaded-path" readonly />
         </div>
         <div class="panel-divider"></div>
         <div class="section-label" style="margin-top:4px">Danh sách liên kết (mỗi dòng một URL)</div>
@@ -934,12 +993,17 @@
               <option value="ko">Tiếng Hàn (ko)</option>
             </select>
           </div>
+          <label class="custom-checkbox" style="margin-top:8px;display:flex;align-items:center;gap:8px">
+            <input type="checkbox" checked id="chk-modal-whisperx" />
+            <span class="chk-box"></span>
+            <span class="field-label">WhisperX word alignment</span>
+          </label>
           <button class="btn mt8" id="btn-run-whisper-stt" style="width:100%; background:#2b6cb0; color:white; border:none; padding:8px; border-radius:4px; cursor:pointer;">Nhận Dạng Giọng Nói (Whisper STT)</button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js" charset="UTF-8"></script>
 </body>
 </html>

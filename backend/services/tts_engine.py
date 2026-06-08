@@ -113,6 +113,8 @@ def synthesize(text: str, provider: str, voice: str, speed: float, output_path: 
         _elevenlabs_tts(text, voice, output_path)
     elif provider == "google":
         _run_with_timeout(_google_tts, (text, voice, output_path))
+    elif provider == "clone":
+        _clone_tts(text, voice, output_path)
     else:
         _edge_tts(text, voice, speed, output_path)
 
@@ -225,6 +227,29 @@ def _google_tts(text, voice, out):
         _fallback_tts(text, out)
 
 
+def _clone_tts(text, voice, out):
+    """TTS using a trained voice clone (Bark)."""
+    try:
+        from ..services.voice_clone import clone_voice
+        from ..config import VOICES_DIR
+        clone_dir = VOICES_DIR / "clones" / voice
+        prompt_path = clone_dir / "voice_prompt.npz"
+        if prompt_path.exists():
+            from bark import generate_audio, SAMPLE_RATE
+            import scipy.io.wavfile as wavfile
+            audio_arr = generate_audio(text, history_prompt=str(prompt_path))
+            wavfile.write(out, SAMPLE_RATE, audio_arr)
+        else:
+            sample = list(clone_dir.glob("sample_*.wav")) + list(clone_dir.glob("*.wav"))
+            if sample:
+                clone_voice(str(sample[0]), text, out)
+            else:
+                _fallback_tts(text, out)
+    except Exception as e:
+        print(f"[TTS] Clone error: {e}")
+        _fallback_tts(text, out)
+
+
 def _fallback_tts(text, out):
     """Generate a silent placeholder if no TTS engine is available."""
     import wave
@@ -292,7 +317,7 @@ def _get_audio_duration(path: str) -> float:
             return 0.0
 
 
-def synthesize_timeline(srt_content: str, provider: str, voice: str, speed: float, output_path: str, api_key: str = None):
+def synthesize_timeline(srt_content: str, provider: str, voice: str, speed: float, output_path: str, api_key: str = None, progress_cb=None):
     """Synthesize each subtitle segment, align it to its timeline start, speed it up if necessary, and mix."""
     import wave
     import json
@@ -317,6 +342,11 @@ def synthesize_timeline(srt_content: str, provider: str, voice: str, speed: floa
             current_frame = 0
             
             for idx, seg in enumerate(segments):
+                if progress_cb:
+                    try:
+                        progress_cb(idx, len(segments))
+                    except Exception:
+                        pass
                 start_time = seg["start"]
                 end_time = seg["end"]
                 text = seg["text"]
@@ -379,6 +409,11 @@ def synthesize_timeline(srt_content: str, provider: str, voice: str, speed: floa
                     data = norm_wf.readframes(norm_wf.getnframes())
                     out_wf.writeframes(data)
                     current_frame += len(data) // bytes_per_sample
+            if progress_cb:
+                try:
+                    progress_cb(len(segments), len(segments))
+                except Exception:
+                    pass
                     
     finally:
         for f in temp_files:

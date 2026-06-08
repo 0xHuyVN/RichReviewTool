@@ -35,6 +35,7 @@ class DownloadRequest(BaseModel):
     quality: str = "best"
     cookie_file: Optional[str] = None
     proxy: Optional[str] = None
+    output_dir: Optional[str] = None
 
 
 class SubtitleRequest(BaseModel):

@@ -255,6 +255,11 @@ def timeline_from_json(project_id: int, data: dict):
                           trans_data.get("type", "crossfade"), trans_data.get("duration_frames", 15))
 
     save_timeline_to_file(project_id)
+    try:
+        from .event_bus import event_bus
+        event_bus.publish("timeline_updated", {"project_id": project_id})
+    except Exception:
+        pass
 
 
 # ─── Timeline to FFmpeg filter graph ───
@@ -329,4 +334,3 @@ def sync_timeline_subtitle(project_id: int, srt_content: str):
             )
             
     save_timeline_to_file(project_id)
-
