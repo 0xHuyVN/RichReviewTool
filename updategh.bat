@@ -1,16 +1,32 @@
 @echo off
-cd /d "%~dp0"
+echo =======================================
+echo Dang chuan bi day code len ForgeX...
+echo =======================================
 
-git add .
-git diff --cached --quiet
-
-if %errorlevel%==0 (
-    echo Khong co thay doi.
-    pause
-    exit
+:: Kiem tra neu thu muc nay chua khoi tao Git thi se tu dong khoi tao
+if not exist .git (
+    echo [1/4] Khoi tao Git lan dau...
+    git init
+    git remote add origin https://github.com/0xHuyVN/ForgeX.git
+) else (
+    echo [1/4] Git da duoc khoi tao.
 )
 
-git commit -m "Auto Update"
-git push origin main
+echo [2/4] Dang gom cac file thay doi...
+git add .
 
+echo [3/4] Dang tao Commit...
+set commit_msg=Auto update: %date% %time%
+git commit -m "%commit_msg%"
+
+:: Dam bao dang o nhanh main
+git branch -M main
+
+echo [4/4] Dang push code len https://github.com/0xHuyVN/ForgeX...
+git push -u origin main
+
+echo.
+echo =======================================
+echo UP CODE LEN GITHUB THANH CONG!
+echo =======================================
 pause
