@@ -5,7 +5,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
-from ..config import FFMPEG_PATH, FFPROBE_PATH, EXPORTS_DIR, CACHE_DIR
+from ..config import FFMPEG_PATH, FFPROBE_PATH, EXPORTS_DIR, CACHE_DIR, VOICES_DIR, SUBTITLES_DIR
 
 
 _has_nvenc_cache = None
@@ -112,6 +112,166 @@ def render_video(input_path: str, output_path: str, params: dict = None):
             cmd.extend(["-crf", p.get("crf", "18"), "-preset", p.get("preset", "medium")])
 
     cmd.extend(["-c:a", "aac", "-b:a", p.get("audio_bitrate", "192k"), "-y", output_path])
+    return run_ffmpeg(cmd)
+
+
+def single_pass_render(video_path: str, output_path: str, params: dict = None) -> bool:
+    """
+    Renders video in a single pass: blurs hardsub region, burns soft subtitle,
+    replaces/muxes audio, scales, sets fps, and encodes.
+    All filter operations are combined into a single filter graph to avoid multiple encodings.
+    """
+    p = params or {}
+    project_id = p.get("project_id", 0)
+
+    # 1. Inputs
+    cmd = ["-i", video_path]
+    
+    # Check if we have TTS audio to replace
+    tts_path = p.get("tts_path")
+    if not tts_path and project_id:
+        potential_tts = str(VOICES_DIR / f"project_{project_id}_tts.wav")
+        if os.path.exists(potential_tts):
+            tts_path = potential_tts
+
+    if tts_path and os.path.exists(tts_path):
+        cmd.extend(["-i", tts_path])
+        has_tts = True
+    else:
+        has_tts = False
+
+    # 2. Build Video Filter Complex
+    # Get original resolution for cropping calculations
+    info = get_video_info(video_path)
+    vw = info.get("width", 1920) or 1920
+    vh = info.get("height", 1080) or 1080
+
+    filter_nodes = []
+    current_v_stream = "[0:v]"
+
+    # Subtitle region blur (hardsub removal)
+    remove_hardsub = bool(p.get("remove_hardsub", False))
+    region = p.get("subtitle_region") or p.get("region")
+    if remove_hardsub and region and float(region.get("width", 0)) > 0 and float(region.get("height", 0)) > 0:
+        def to_px(val, dim):
+            return int(float(val) * dim) if float(val) <= 1 else int(float(val))
+
+        rx = max(0, to_px(region["x"], vw))
+        ry = max(0, to_px(region["y"], vh))
+        rw = min(vw - rx, max(1, to_px(region.get("width", 0.7), vw)))
+        rh = min(vh - ry, max(1, to_px(region.get("height", 0.15), vh)))
+
+        blur_out = "[blurred_sub]"
+        overlay_out = "[v_blur_applied]"
+        
+        filter_nodes.append(f"{current_v_stream}crop=w={rw}:h={rh}:x={rx}:y={ry},boxblur=lr=2:lp=1{blur_out}")
+        filter_nodes.append(f"{current_v_stream}{blur_out}overlay=x={rx}:y={ry}{overlay_out}")
+        current_v_stream = overlay_out
+
+    # Soft subtitle burning
+    burn = p.get("burn_subtitle", True)
+    sub_path = p.get("subtitle_path")
+    if not sub_path and project_id:
+        potential_sub = str(SUBTITLES_DIR / f"project_{project_id}_burn.srt")
+        if os.path.exists(potential_sub):
+            sub_path = potential_sub
+
+    if burn and sub_path and os.path.exists(sub_path):
+        sub_style = {
+            "font": p.get("subtitle_font", "Arial"),
+            "size": int(p.get("subtitle_size", 42)),
+            "color": p.get("subtitle_color", "#FFFFFF"),
+            "shadow": p.get("subtitle_shadow", "soft"),
+        }
+        sub_ext = Path(sub_path).suffix.lower()
+        
+        tmp_dir = Path(CACHE_DIR) / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        
+        if sub_ext == ".srt" and region:
+            ass_content = _srt_to_region_ass(
+                Path(sub_path).read_text(encoding="utf-8"),
+                vw, vh, region, sub_style
+            )
+            ass_tmp = str(tmp_dir / f"sub_region_{os.getpid()}_{os.urandom(4).hex()}.ass")
+            Path(ass_tmp).write_text(ass_content, encoding="utf-8")
+            actual_sub_path = ass_tmp
+            sub_ext = ".ass"
+        else:
+            actual_sub_path = sub_path
+
+        safe_src = _temp_copy(actual_sub_path)
+        safe_path = _filter_path(safe_src)
+        
+        sub_out = "[v_sub_burned]"
+        if sub_ext == ".ass":
+            filter_nodes.append(f"{current_v_stream}ass=filename='{safe_path}'{sub_out}")
+        else:
+            filter_nodes.append(f"{current_v_stream}subtitles=filename='{safe_path}'{sub_out}")
+        current_v_stream = sub_out
+
+    # Scaling / Resolution conversion
+    width = p.get("width")
+    height = p.get("height")
+    if width and height:
+        scale_out = "[v_scaled]"
+        filter_nodes.append(f"{current_v_stream}scale={width}:{height}{scale_out}")
+        current_v_stream = scale_out
+
+    # 3. Assemble Video Filters in Command
+    if filter_nodes:
+        filter_complex_str = ";".join(filter_nodes)
+        cmd.extend(["-filter_complex", filter_complex_str])
+        cmd.extend(["-map", current_v_stream])
+    else:
+        cmd.extend(["-map", "0:v:0"])
+
+    # 4. Map Audio Stream
+    if has_tts:
+        cmd.extend(["-map", "1:a:0"])
+        cmd.append("-shortest")
+    else:
+        cmd.extend(["-map", "0:a?"])
+
+    # 5. FPS
+    if p.get("fps"):
+        cmd.extend(["-r", str(p["fps"])])
+
+    # 6. Video Codec and encoding settings
+    codec = p.get("codec", "h264")
+    if has_nvenc():
+        codec_map = {"h264": "h264_nvenc", "h265": "hevc_nvenc", "av1": "libaom-av1"}
+    else:
+        codec_map = {"h264": "libx264", "h265": "libx265", "av1": "libaom-av1"}
+    chosen_codec = codec_map.get(codec, "libx264")
+    cmd.extend(["-c:v", chosen_codec])
+
+    if p.get("bitrate"):
+        cmd.extend(["-b:v", p["bitrate"]])
+    else:
+        if "nvenc" in chosen_codec:
+            preset_map = {
+                "ultrafast": "p1",
+                "superfast": "p1",
+                "veryfast": "p2",
+                "faster": "p2",
+                "fast": "p3",
+                "medium": "p4",
+                "slow": "p5",
+                "slower": "p6",
+                "veryslow": "p7"
+            }
+            nvenc_preset = preset_map.get(p.get("preset", "medium"), "p4")
+            cmd.extend(["-rc", "vbr", "-cq", p.get("crf", "18"), "-preset", nvenc_preset])
+        else:
+            cmd.extend(["-crf", p.get("crf", "18"), "-preset", p.get("preset", "medium")])
+
+    # 7. Audio Codec
+    cmd.extend(["-c:a", "aac", "-b:a", p.get("audio_bitrate", "192k")])
+
+    # 8. Output
+    cmd.extend(["-y", output_path])
+
     return run_ffmpeg(cmd)
 
 

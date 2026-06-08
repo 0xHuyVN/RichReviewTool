@@ -254,10 +254,11 @@ def _render(item_id: int, project_id: int, video_path: str, params: dict) -> boo
     output_stem = Path(output_name).stem
     final_output = str(export_dir / f"{output_stem}.{output_format}")
 
-    _log(item_id, "info", f"Rendering video to {final_output}")
+    _log(item_id, "info", f"Rendering video to {final_output} (Single Pass Optimization)")
 
-    # Step 1: Burn subtitles if available
+    # Step 1: Prepare subtitle if burning
     burn = params.get("burn_subtitle", True)
+    srt_path = None
     if burn:
         with db_cursor() as cur:
             row = cur.execute(
@@ -267,44 +268,35 @@ def _render(item_id: int, project_id: int, video_path: str, params: dict) -> boo
         if row:
             srt_path = str(SUBTITLES_DIR / f"project_{project_id}_burn.srt")
             Path(srt_path).write_text(row["content"], encoding="utf-8")
-            _log(item_id, "info", "Burning subtitles...")
+            _log(item_id, "info", "Prepared subtitles for single-pass burn")
 
-            sub_style = {
-                "font": params.get("subtitle_font", "Arial"),
-                "size": int(params.get("subtitle_size", 42)),
-                "color": params.get("subtitle_color", "#FFFFFF"),
-                "shadow": params.get("subtitle_shadow", "soft"),
-            }
-            sub_region = params.get("subtitle_region", None)
-            remove_hardsub = bool(params.get("remove_hardsub", False))
+    render_params = dict(params)
+    render_params["project_id"] = project_id
+    if srt_path:
+        render_params["subtitle_path"] = srt_path
 
-            from .ffmpeg_utils import burn_subtitle
-            burned = str(export_dir / f"{output_stem}_subbed.mp4")
-            burn_subtitle(video_path, srt_path, burned, region=sub_region, style=sub_style, remove_hardsub=remove_hardsub)
-            video_path = burned
-            _update(item_id, "running", 40)
+    _update(item_id, "running", 30)
 
-    # Step 2: Replace audio with TTS if available
-    tts_path = str(VOICES_DIR / f"project_{project_id}_tts.wav")
-    if os.path.exists(tts_path):
-        _log(item_id, "info", "Replacing audio with TTS...")
-        from .ffmpeg_utils import replace_audio
-        video_path = replace_audio(video_path, tts_path, final_output)
-        _update(item_id, "running", 70)
-    else:
-        _log(item_id, "info", "No TTS found, copying audio as-is")
-
-    # Step 3: Apply effects (scale, codec, bitrate) — use temp file to avoid same-file conflict
-    _log(item_id, "info", "Applying encode settings...")
-    from .ffmpeg_utils import render_video
+    # Step 2: Render in single pass
+    from .ffmpeg_utils import single_pass_render
     final_path = Path(final_output)
     encoded_tmp = str(final_path.with_name(f"{final_path.stem}_encoded{final_path.suffix}"))
-    if not render_video(video_path, encoded_tmp, params):
-        raise RuntimeError(f"FFmpeg render_video failed for {video_path}")
+    
+    if not single_pass_render(video_path, encoded_tmp, render_params):
+        raise RuntimeError(f"FFmpeg single_pass_render failed for {video_path}")
+        
     if not os.path.exists(encoded_tmp):
-        raise RuntimeError(f"render_video output not created: {encoded_tmp}")
+        raise RuntimeError(f"single_pass_render output not created: {encoded_tmp}")
+        
     os.replace(encoded_tmp, final_output)
     _update(item_id, "running", 90)
+
+    # Clean up subtitle file if created
+    if srt_path and os.path.exists(srt_path):
+        try:
+            os.remove(srt_path)
+        except Exception:
+            pass
 
     file_size = os.path.getsize(final_output)
     with db_cursor() as cur:

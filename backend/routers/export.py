@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from ..services.ffmpeg_utils import render_video, export_audio
+from ..services.ffmpeg_utils import render_video, export_audio, single_pass_render
 from ..models.schemas import QueueItemCreate
 from ..services.queue_manager import add_queue_item
 from ..database import db_cursor
@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("/render")
 def render(data: QueueItemCreate, bg: BackgroundTasks):
     item_id = add_queue_item(data.project_id, "render", data.input_path, data.params)
-    bg.add_task(render_video, data.input_path, str(EXPORTS_DIR / f"render_{item_id}.mp4"), data.params)
+    bg.add_task(single_pass_render, data.input_path, str(EXPORTS_DIR / f"render_{item_id}.mp4"), data.params)
     return {"id": item_id, "message": "Đã đưa tiến trình kết xuất vào hàng đợi"}
 
 

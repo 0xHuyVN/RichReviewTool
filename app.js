@@ -21,7 +21,7 @@ function showToast(message, type = 'error', duration = 4000) {
     toast.onclick = () => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); };
     container.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, duration);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 let latestQueueData = null;
@@ -80,7 +80,7 @@ class QueueSSEManager {
     if (msg.type === 'timeline_updated') {
       const projectId = msg.data?.project_id;
       if (!projectId || !currentProjectId || Number(projectId) === Number(currentProjectId)) {
-        loadTimeline(currentProjectId || projectId).catch(() => {});
+        loadTimeline(currentProjectId || projectId).catch(() => { });
       }
       return;
     }
@@ -92,7 +92,7 @@ class QueueSSEManager {
           const srtInput = document.getElementById('inp-srt-path');
           if (srtInput) srtInput.value = msg.data.path;
         }
-        loadTimeline(currentProjectId || projectId).catch(() => {});
+        loadTimeline(currentProjectId || projectId).catch(() => { });
         showToast('Phu de da cap nhat', 'success', 2500);
       }
       return;
@@ -120,7 +120,7 @@ class QueueSSEManager {
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     if (this.eventSource) {
-      try { this.eventSource.close(); } catch (_) {}
+      try { this.eventSource.close(); } catch (_) { }
       this.eventSource = null;
     }
     if (clearListeners) queueListeners = [];
@@ -151,16 +151,16 @@ function addClientLog(level, message, detail) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level, message: message + (detail ? ' | ' + detail : '') }),
-    }).catch(() => {});
-  } catch (_) {}
+    }).catch(() => { });
+  } catch (_) { }
 }
 
 // Capture global errors
-window.onerror = function(msg, source, lineno, colno, err) {
+window.onerror = function (msg, source, lineno, colno, err) {
   const detail = err ? err.stack : `${source}:${lineno}:${colno}`;
   addClientLog('error', `[GLOBAL] ${msg}`, detail);
 };
-window.addEventListener('unhandledrejection', function(e) {
+window.addEventListener('unhandledrejection', function (e) {
   const msg = e.reason?.message || e.reason || 'Unknown';
   addClientLog('error', `[PROMISE] ${msg}`, e.reason?.stack || '');
 });
@@ -338,19 +338,19 @@ async function loadDashboard() {
         const currentVal = sel.value;
         sel.innerHTML = names.map(n => `<option>${presets[n].name || n}</option>`).join('');
         if ([...sel.options].some(o => o.value === currentVal)) sel.value = currentVal;
-    });
-  };
+      });
+    };
   }
 }
 
 /* Tab switching â€“ Processing Panel */
-(function() {
+(function () {
   var tabs = document.querySelectorAll('#processing-tabs .tab');
   var contents = document.querySelectorAll('.tab-content');
   function switchTab(btn) {
     try {
-      tabs.forEach(function(t) { t.classList.remove('active'); });
-      contents.forEach(function(c) { c.classList.remove('active'); });
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      contents.forEach(function (c) { c.classList.remove('active'); });
       btn.classList.add('active');
       var target = btn.dataset.target;
       if (target) {
@@ -359,14 +359,57 @@ async function loadDashboard() {
       }
     } catch (e) { console.warn('Tab switch error:', e); }
   }
-  tabs.forEach(function(btn) {
-    btn.addEventListener('click', function() { switchTab(btn); });
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () { switchTab(btn); });
   });
   // Expose for nav click simulation
   window._switchTab = switchTab;
 })();
 
-
+/* Asset Library Item click handlers */
+(function() {
+  document.querySelectorAll('.asset-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.asset-item').forEach(n => n.classList.remove('active'));
+      item.classList.add('active');
+      const text = item.textContent.trim().toLowerCase();
+      if (text.includes('video')) {
+        document.getElementById('work-mode-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (text.includes('nhạc nền')) {
+        const tabBtn = document.querySelector(`#processing-tabs .tab[data-target="tab-music"]`);
+        if (tabBtn) {
+          if (window._switchTab) window._switchTab(tabBtn);
+          else tabBtn.click();
+        }
+        document.getElementById('processing-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (text.includes('giọng đọc')) {
+        const tabBtn = document.querySelector(`#processing-tabs .tab[data-target="tab-voice"]`);
+        if (tabBtn) {
+          if (window._switchTab) window._switchTab(tabBtn);
+          else tabBtn.click();
+        }
+        document.getElementById('processing-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (text.includes('phụ đề')) {
+        const tabBtn = document.querySelector(`#processing-tabs .tab[data-target="tab-subtitle"]`);
+        if (tabBtn) {
+          if (window._switchTab) window._switchTab(tabBtn);
+          else tabBtn.click();
+        }
+        document.getElementById('processing-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (text.includes('đóng dấu')) {
+        const tabBtn = document.querySelector(`#processing-tabs .tab[data-target="tab-enhance"]`);
+        if (tabBtn) {
+          if (window._switchTab) window._switchTab(tabBtn);
+          else tabBtn.click();
+        }
+        document.getElementById('processing-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (text.includes('mẫu thiết lập')) {
+        document.getElementById('work-mode-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+})();
 
 /* Sidebar feature flyout - Full Tree */
 const sidebarTree = {
@@ -376,28 +419,38 @@ const sidebarTree = {
       { icon: 'ri-dashboard-2-line', label: 'Báº£ng Ä‘iá»u khiá»ƒn' },
       { icon: 'ri-history-line', label: 'Dá»± Ã¡n gáº§n Ä‘Ã¢y' },
       { icon: 'ri-bar-chart-2-line', label: 'Thá»‘ng kÃª' },
-      { label: 'TÃ i nguyÃªn', icon: 'ri-archive-stack-line', children: [
-        { label: 'Videos', children: [
-          { label: 'Gá»‘c' },
-          { label: 'ÄÃ£ sá»­a' },
-          { label: 'ÄÃ£ xuáº¥t' }
-        ]},
-        { label: 'Ã‚m thanh', children: [
-          { label: 'Nháº¡c ná»n' },
-          { label: 'Giá»ng Ä‘á»c' },
-          { label: 'Hiá»‡u á»©ng' }
-        ]},
-        { label: 'Phá»¥ Ä‘á»', children: [
-          { label: 'Nguá»“n' },
-          { label: 'Dá»‹ch thuáº­t' }
-        ]},
-        { label: 'NhÃ£n hiá»‡u', children: [
-          { label: 'Logo' },
-          { label: 'HÃ¬nh má»' },
-          { label: 'QR' }
-        ]},
-        { label: 'Máº«u sáºµn (Template)' }
-      ]}
+      {
+        label: 'TÃ i nguyÃªn', icon: 'ri-archive-stack-line', children: [
+          {
+            label: 'Videos', children: [
+              { label: 'Gá»‘c' },
+              { label: 'ÄÃ£ sá»­a' },
+              { label: 'ÄÃ£ xuáº¥t' }
+            ]
+          },
+          {
+            label: 'Ã‚m thanh', children: [
+              { label: 'Nháº¡c ná»n' },
+              { label: 'Giá»ng Ä‘á»c' },
+              { label: 'Hiá»‡u á»©ng' }
+            ]
+          },
+          {
+            label: 'Phá»¥ Ä‘á»', children: [
+              { label: 'Nguá»“n' },
+              { label: 'Dá»‹ch thuáº­t' }
+            ]
+          },
+          {
+            label: 'NhÃ£n hiá»‡u', children: [
+              { label: 'Logo' },
+              { label: 'HÃ¬nh má»' },
+              { label: 'QR' }
+            ]
+          },
+          { label: 'Máº«u sáºµn (Template)' }
+        ]
+      }
     ]
   },
   project: {
@@ -429,46 +482,60 @@ const sidebarTree = {
   subtitle: {
     title: 'Phá»¥ Ä‘á»',
     tree: [
-      { label: 'Nháº­p phá»¥ Ä‘á»', icon: 'ri-upload-cloud-2-line', children: [
-        { label: 'SRT' },
-        { label: 'ASS' },
-        { label: 'GhÃ©p phá»¥ Ä‘á»' }
-      ]},
-      { label: 'Dá»‹ch thuáº­t', icon: 'ri-translate-2', children: [
-        { label: 'GPT' },
-        { label: 'Gemini' },
-        { label: 'Dá»‹ch hÃ ng loáº¡t' }
-      ]},
-      { label: 'Kiá»ƒu dÃ¡ng', icon: 'ri-font-size', children: [
-        { label: 'Font chá»¯' },
-        { label: 'MÃ u sáº¯c' },
-        { label: 'Äá»• bÃ³ng' }
-      ]},
-      { label: 'Xuáº¥t phá»¥ Ä‘á»', icon: 'ri-download-2-line', children: [
-        { label: 'Gáº¯n cá»©ng' },
-        { label: 'SRT' },
-        { label: 'ASS' }
-      ]}
+      {
+        label: 'Nháº­p phá»¥ Ä‘á»', icon: 'ri-upload-cloud-2-line', children: [
+          { label: 'SRT' },
+          { label: 'ASS' },
+          { label: 'GhÃ©p phá»¥ Ä‘á»' }
+        ]
+      },
+      {
+        label: 'Dá»‹ch thuáº­t', icon: 'ri-translate-2', children: [
+          { label: 'GPT' },
+          { label: 'Gemini' },
+          { label: 'Dá»‹ch hÃ ng loáº¡t' }
+        ]
+      },
+      {
+        label: 'Kiá»ƒu dÃ¡ng', icon: 'ri-font-size', children: [
+          { label: 'Font chá»¯' },
+          { label: 'MÃ u sáº¯c' },
+          { label: 'Äá»• bÃ³ng' }
+        ]
+      },
+      {
+        label: 'Xuáº¥t phá»¥ Ä‘á»', icon: 'ri-download-2-line', children: [
+          { label: 'Gáº¯n cá»©ng' },
+          { label: 'SRT' },
+          { label: 'ASS' }
+        ]
+      }
     ]
   },
   voice: {
     title: 'Giá»ng Ä‘á»c',
     tree: [
-      { label: 'TTS', icon: 'ri-mic-2-line', children: [
-        { label: 'Google' },
-        { label: 'Azure' },
-        { label: 'ElevenLabs' },
-        { label: 'EdgeTTS' }
-      ]},
-      { label: 'NhÃ¢n báº£n giá»ng nÃ³i', icon: 'ri-user-voice-line', children: [
-        { label: 'Táº£i lÃªn máº«u' },
-        { label: 'Huáº¥n luyá»‡n' },
-        { label: 'Xuáº¥t giá»ng nÃ³i' }
-      ]},
-      { label: 'Äa giá»ng Ä‘á»c', icon: 'ri-team-line', children: [
-        { label: 'Ãnh xáº¡ giá»ng Ä‘á»c' },
-        { label: 'Tá»± Ä‘á»™ng nháº­n diá»‡n' }
-      ]},
+      {
+        label: 'TTS', icon: 'ri-mic-2-line', children: [
+          { label: 'Google' },
+          { label: 'Azure' },
+          { label: 'ElevenLabs' },
+          { label: 'EdgeTTS' }
+        ]
+      },
+      {
+        label: 'NhÃ¢n báº£n giá»ng nÃ³i', icon: 'ri-user-voice-line', children: [
+          { label: 'Táº£i lÃªn máº«u' },
+          { label: 'Huáº¥n luyá»‡n' },
+          { label: 'Xuáº¥t giá»ng nÃ³i' }
+        ]
+      },
+      {
+        label: 'Äa giá»ng Ä‘á»c', icon: 'ri-team-line', children: [
+          { label: 'Ãnh xáº¡ giá»ng Ä‘á»c' },
+          { label: 'Tá»± Ä‘á»™ng nháº­n diá»‡n' }
+        ]
+      },
       { label: 'ThÆ° viá»‡n giá»ng Ä‘á»c', icon: 'ri-voiceprint-line' }
     ]
   },
@@ -493,26 +560,34 @@ const sidebarTree = {
       { icon: 'ri-list-check-3', label: 'HÃ ng chá»' },
       { icon: 'ri-equalizer-line', label: 'Máº«u thiáº¿t láº­p' },
       { icon: 'ri-upload-cloud-2-line', label: 'Táº£i lÃªn' },
-      { label: 'Video', icon: 'ri-video-line', children: [
-        { label: 'MP4' },
-        { label: 'MKV' },
-        { label: 'MOV' }
-      ]},
-      { label: 'MÃ£ hÃ³a (Codec)', icon: 'ri-cpu-line', children: [
-        { label: 'H264' },
-        { label: 'H265' },
-        { label: 'AV1' }
-      ]},
-      { label: 'GPU', icon: 'ri-server-line', children: [
-        { label: 'NVENC' },
-        { label: 'AMD' },
-        { label: 'CPU' }
-      ]},
-      { label: 'ÄÄƒng táº£i', icon: 'ri-share-line', children: [
-        { label: 'YouTube' },
-        { label: 'TikTok' },
-        { label: 'Facebook' }
-      ]}
+      {
+        label: 'Video', icon: 'ri-video-line', children: [
+          { label: 'MP4' },
+          { label: 'MKV' },
+          { label: 'MOV' }
+        ]
+      },
+      {
+        label: 'MÃ£ hÃ³a (Codec)', icon: 'ri-cpu-line', children: [
+          { label: 'H264' },
+          { label: 'H265' },
+          { label: 'AV1' }
+        ]
+      },
+      {
+        label: 'GPU', icon: 'ri-server-line', children: [
+          { label: 'NVENC' },
+          { label: 'AMD' },
+          { label: 'CPU' }
+        ]
+      },
+      {
+        label: 'ÄÄƒng táº£i', icon: 'ri-share-line', children: [
+          { label: 'YouTube' },
+          { label: 'TikTok' },
+          { label: 'Facebook' }
+        ]
+      }
     ]
   },
   queue: {
@@ -697,7 +772,7 @@ document.getElementById('btn-load')?.addEventListener('click', async () => {
     });
     if (!project) throw new Error('KhÃ´ng thá»ƒ táº¡o dá»± Ã¡n');
     currentProjectId = project.id;
-    
+
     if (loadProgress) loadProgress.style.width = '35%';
     if (loadPct) loadPct.textContent = '35%';
 
@@ -705,7 +780,7 @@ document.getElementById('btn-load')?.addEventListener('click', async () => {
     if (videoPath) {
       await apiPost(`/timeline/${currentProjectId}/video`, { path: videoPath });
     }
-    
+
     if (loadProgress) loadProgress.style.width = '65%';
     if (loadPct) loadPct.textContent = '65%';
 
@@ -732,7 +807,7 @@ const executeBtn = document.getElementById('btn-execute');
 const executeCountMax = 5;
 let executeCount = executeCountMax;
 
-const LANG_MAP_EXEC = {'Tiáº¿ng Anh':'en','Tiáº¿ng Trung':'zh','Tiáº¿ng Nháº­t':'ja','Tiáº¿ng HÃ n':'ko','Tiáº¿ng Viá»‡t':'vi'};
+const LANG_MAP_EXEC = { 'Tiáº¿ng Anh': 'en', 'Tiáº¿ng Trung': 'zh', 'Tiáº¿ng Nháº­t': 'ja', 'Tiáº¿ng HÃ n': 'ko', 'Tiáº¿ng Viá»‡t': 'vi' };
 
 executeBtn.addEventListener('click', async () => {
   if (isRunning) return;
@@ -967,7 +1042,7 @@ function updateLastRow(pct) {
 }
 
 /* â”€â”€â”€ Crop checkbox toggle â”€â”€â”€ */
-document.getElementById('chk-crop-video')?.addEventListener('change', function() {
+document.getElementById('chk-crop-video')?.addEventListener('change', function () {
   const pos = document.getElementById('inp-crop-pos');
   const btn = document.getElementById('btn-chon-vi-tri');
   pos.disabled = !this.checked;
@@ -982,8 +1057,8 @@ if (cropPos) { cropPos.disabled = true; cropPos.style.opacity = '0.4'; }
 if (chonViTri) { chonViTri.disabled = true; chonViTri.style.opacity = '0.4'; }
 
 /* â”€â”€â”€ Resize checkbox toggle â”€â”€â”€ */
-document.getElementById('chk-resize')?.addEventListener('change', function() {
-  ['inp-height','inp-width','chk-keep-ratio'].forEach(id => {
+document.getElementById('chk-resize')?.addEventListener('change', function () {
+  ['inp-height', 'inp-width', 'chk-keep-ratio'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.disabled = !this.checked;
@@ -1535,7 +1610,7 @@ document.getElementById('btn-voice-speakers')?.addEventListener('click', async (
   }
 });
 
-document.getElementById('chk-auto-diarize')?.addEventListener('change', function() {
+document.getElementById('chk-auto-diarize')?.addEventListener('change', function () {
   if (this.checked) {
     apiPost('/ai/speakers', { project_id: currentProjectId || 1, auto_diarize: true });
   }
@@ -1586,10 +1661,10 @@ async function loadTimeline(projectId) {
     const track = (data.tracks || []).find(t => t.type === tt.type);
     const clipsHtml = track
       ? (track.clips || []).map(c => {
-          const w = totalFrames > 0 ? ((c.end_frame - c.start_frame) / totalFrames * 100) : 0;
-          const l = totalFrames > 0 ? ((c.position_frame || 0) / totalFrames * 100) : 0;
-          return `<div class="${tt.clipClass}" style="width:${Math.max(w, 5)}%;left:${l}%" title="${escapeHtml(c.name || '')}">${escapeHtml(c.name || 'Clip')}</div>`;
-        }).join('')
+        const w = totalFrames > 0 ? ((c.end_frame - c.start_frame) / totalFrames * 100) : 0;
+        const l = totalFrames > 0 ? ((c.position_frame || 0) / totalFrames * 100) : 0;
+        return `<div class="${tt.clipClass}" style="width:${Math.max(w, 5)}%;left:${l}%" title="${escapeHtml(c.name || '')}">${escapeHtml(c.name || 'Clip')}</div>`;
+      }).join('')
       : '<span class="track-lane-empty">â€”</span>';
     return `
       <div class="track-row">
@@ -1738,14 +1813,14 @@ async function getSubtitleText() {
   try {
     const subs = await apiGet('/subtitle/' + (currentProjectId || 1));
     if (subs && subs.length > 0 && subs[0].content) return subs[0].content;
-  } catch (_) {}
+  } catch (_) { }
   // Priority 2: read file content from local path via backend
   const srtPath = document.getElementById('inp-srt-path')?.value?.trim();
   if (srtPath) {
     try {
       const r = await apiPost('/subtitle/read-file', { path: srtPath });
       if (r && r.content) return r.content;
-    } catch (_) {}
+    } catch (_) { }
     return srtPath; // fallback: send the path and let backend open it
   }
   return '';
@@ -1884,7 +1959,7 @@ const transResultInfo = document.getElementById('trans-result-info');
 
 function showTransResult(text, filename) {
   if (transResultText) transResultText.value = text;
-  if (transResultInfo) transResultInfo.textContent = `NLLB-200 â€” ${filename || 'subtitle.srt'} (${(text||'').split('\n').length} dÃ²ng)`;
+  if (transResultInfo) transResultInfo.textContent = `NLLB-200 â€” ${filename || 'subtitle.srt'} (${(text || '').split('\n').length} dÃ²ng)`;
   transResultModal?.classList.add('show');
 }
 
@@ -1925,7 +2000,7 @@ document.getElementById('btn-sub-trans-nllb')?.addEventListener('click', async (
 
   const fromLang = document.getElementById('sel-lang-from')?.value;
   const toLang = document.getElementById('sel-lang-to')?.value;
-  const LANG_MAP = {'Tiáº¿ng Anh':'en','Tiáº¿ng Trung':'zh','Tiáº¿ng Nháº­t':'ja','Tiáº¿ng HÃ n':'ko','Tiáº¿ng Viá»‡t':'vi','Tiáº¿ng Nga':'ru','Tiáº¿ng PhÃ¡p':'fr','Tiáº¿ng Äá»©c':'de'};
+  const LANG_MAP = { 'Tiáº¿ng Anh': 'en', 'Tiáº¿ng Trung': 'zh', 'Tiáº¿ng Nháº­t': 'ja', 'Tiáº¿ng HÃ n': 'ko', 'Tiáº¿ng Viá»‡t': 'vi', 'Tiáº¿ng Nga': 'ru', 'Tiáº¿ng PhÃ¡p': 'fr', 'Tiáº¿ng Äá»©c': 'de' };
   const srcCode = LANG_MAP[fromLang] || 'en';
   const dstCode = LANG_MAP[toLang] || 'vi';
   const srtName = srtPath ? srtPath.split(/[\/\\]/).pop() : 'subtitle.srt';
@@ -1953,8 +2028,8 @@ document.getElementById('btn-sub-trans-nllb')?.addEventListener('click', async (
   // Elapsed timer
   const timerInterval = setInterval(() => {
     const sec = Math.round((Date.now() - t0) / 1000);
-    const mm = String(Math.floor(sec / 60)).padStart(2,'0');
-    const ss = String(sec % 60).padStart(2,'0');
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
     const el = document.getElementById(`elapsed-${rowId}`);
     if (el) el.textContent = `${mm}:${ss}`;
   }, 1000);
@@ -1973,7 +2048,7 @@ document.getElementById('btn-sub-trans-nllb')?.addEventListener('click', async (
       const fill = document.getElementById(`mini-fill-${rowId}`);
       if (fill) fill.style.width = '100%';
       const sd = document.getElementById(`subdich-${rowId}`);
-      if (sd) sd.textContent = `${toLang}: ${(startRes?.translated||'').substring(0,40)}...`;
+      if (sd) sd.textContent = `${toLang}: ${(startRes?.translated || '').substring(0, 40)}...`;
       clearInterval(timerInterval);
       btn.disabled = false;
       btn.innerHTML = oldText;
@@ -1998,7 +2073,7 @@ document.getElementById('btn-sub-trans-nllb')?.addEventListener('click', async (
           if (prog?.status === 'done') {
             clearInterval(poll);
             const translated = prog.translated || '';
-            const snippet = translated.replace(/\n/g,' ').substring(0, 40);
+            const snippet = translated.replace(/\n/g, ' ').substring(0, 40);
             if (sd) {
               sd.textContent = `${toLang}: ${snippet}...`;
               // Click to view full result
@@ -2018,7 +2093,7 @@ document.getElementById('btn-sub-trans-nllb')?.addEventListener('click', async (
             if (sd) sd.textContent = `âŒ ${prog.error}`;
             resolve();
           }
-        } catch(_) {}
+        } catch (_) { }
       }, 500);
     });
 
@@ -2165,13 +2240,13 @@ document.getElementById('btn-start-download')?.addEventListener('click', async (
   const quality = document.getElementById('sel-download-quality')?.value || 'best';
   const proxy = document.getElementById('inp-download-proxy')?.value || '';
   const outputDir = document.getElementById('inp-download-output')?.value || '';
-  
+
   document.getElementById('download-progress-container').style.display = 'flex';
   document.getElementById('download-output-row').style.display = 'none';
   const fill = document.getElementById('download-progress');
   const pct = document.getElementById('download-pct');
   fill.style.width = '0%'; pct.textContent = '0%';
-  
+
   const res = await apiPost('/download/', { url, quality, proxy, output_dir: outputDir, project_id: currentProjectId || 1 });
   if (res && res.id) {
     pollDownload(res.id);
@@ -2288,7 +2363,7 @@ function subBoxToggle() {
 }
 
 document.getElementById('btn-preview-sub-box')?.addEventListener('click', subBoxToggle);
-document.getElementById('btn-preview-sub-blur')?.addEventListener('click', function() {
+document.getElementById('btn-preview-sub-blur')?.addEventListener('click', function () {
   subBlurEnabled = !subBlurEnabled;
   this.classList.toggle('active', subBlurEnabled);
   if (subBlurEnabled && !subBoxVisible) subBoxShow();
@@ -2318,7 +2393,7 @@ function handleSubInput() {
 });
 
 // Alignment selector
-document.getElementById('sel-sub-alignment')?.addEventListener('change', function(e) {
+document.getElementById('sel-sub-alignment')?.addEventListener('change', function (e) {
   const val = e.target.value;
   if (val && val !== 'custom') {
     const preset = ALIGNMENT_PRESETS[val];
@@ -2330,7 +2405,7 @@ document.getElementById('sel-sub-alignment')?.addEventListener('change', functio
 });
 
 // Reset button
-document.getElementById('btn-sub-region-reset')?.addEventListener('click', function() {
+document.getElementById('btn-sub-region-reset')?.addEventListener('click', function () {
   subBoxRegion = { ...SUB_BOX_DEFAULTS };
   const sel = document.getElementById('sel-sub-alignment');
   if (sel) sel.value = 'bottom-center';
@@ -2669,7 +2744,7 @@ document.getElementById('btn-music-playlist')?.addEventListener('click', async (
 });
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• KEEP BGM TOGGLE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-document.getElementById('chk-keep-bgm')?.addEventListener('change', function() {
+document.getElementById('chk-keep-bgm')?.addEventListener('change', function () {
   const vol = document.getElementById('inp-bgm-vol');
   if (vol) {
     vol.disabled = !this.checked;
@@ -2686,7 +2761,7 @@ document.getElementById('inp-bgm-vol') && (() => {
 })();
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• AUTO VOICE TOGGLE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-document.getElementById('chk-auto-voice')?.addEventListener('change', function() {
+document.getElementById('chk-auto-voice')?.addEventListener('change', function () {
   const inputs = ['sel-tts-provider', 'sel-voice-lang', 'sel-voice-type', 'btn-play-voice', 'sel-voice-mode', 'chk-keep-bgm', 'inp-bgm-vol'];
   inputs.forEach(id => {
     const el = document.getElementById(id);
@@ -2699,7 +2774,7 @@ document.getElementById('chk-auto-voice')?.addEventListener('change', function()
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SPEED RAMP / MOTION EFFECTS HANDLERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 document.querySelectorAll('#tab-enhance .custom-checkbox input').forEach(chk => {
-  chk.addEventListener('change', function() {
+  chk.addEventListener('change', function () {
     const label = this.closest('.feature-item')?.querySelector('.field-label')?.textContent?.toLowerCase().trim();
     if (label === 'slow motion' || label === 'fast motion' || label === 'speed ramp' || label === 'particle effects') {
       // These are handled by the main enhance apply button
@@ -2858,16 +2933,16 @@ document.getElementById('btn-extract-srt')?.addEventListener('click', async () =
     alert('Vui lÃ²ng chá»n file video á»Ÿ má»¥c Path Video trÆ°á»›c!');
     return;
   }
-  
+
   // Show loading indicator
   const modal = document.getElementById('extract-sub-modal');
   modal.classList.add('show');
-  
+
   const streamsSection = document.getElementById('sub-streams-section');
   const streamsList = document.getElementById('sub-streams-list');
   streamsSection.style.display = 'none';
   streamsList.innerHTML = '<div style="color:#718096; text-align:center; padding:10px;">Äang quÃ©t phá»¥ Ä‘á» trong video...</div>';
-  
+
   try {
     const res = await apiPost('/subtitle/detect-streams', { path: videoPath });
     if (res && res.streams && res.streams.length > 0) {
@@ -2879,16 +2954,16 @@ document.getElementById('btn-extract-srt')?.addEventListener('click', async () =
         item.style.gap = '8px';
         item.style.cursor = 'pointer';
         item.style.padding = '4px 0';
-        
+
         const radio = document.createElement('input');
         radio.type = 'radio';
         radio.name = 'srt-stream-choice';
         radio.value = stream.index;
         if (idx === 0) radio.checked = true;
-        
+
         const labelText = document.createElement('span');
         labelText.textContent = `Track ${stream.index}: ${stream.title}`;
-        
+
         item.appendChild(radio);
         item.appendChild(labelText);
         streamsList.appendChild(item);
@@ -2909,13 +2984,13 @@ document.getElementById('btn-extract-selected-stream')?.addEventListener('click'
     alert('Vui lÃ²ng chá»n má»™t track phá»¥ Ä‘á» Ä‘á»ƒ trÃ­ch xuáº¥t!');
     return;
   }
-  
+
   const index = parseInt(selectedRadio.value);
   const extractBtn = document.getElementById('btn-extract-selected-stream');
   const originalText = extractBtn.textContent;
   extractBtn.textContent = 'Äang trÃ­ch xuáº¥t...';
   extractBtn.disabled = true;
-  
+
   try {
     const res = await apiPost('/subtitle/extract-stream', {
       path: videoPath,
@@ -2945,27 +3020,27 @@ document.getElementById('btn-run-whisper-stt')?.addEventListener('click', async 
     alert('Vui lÃ²ng chá»n video trÆ°á»›c!');
     return;
   }
-  
-    const language = document.getElementById('sel-stt-lang')?.value || 'vi';
-    const vocalSep = document.getElementById('chk-vocal-sep')?.checked ?? true;
-    const useWhisperX = document.getElementById('chk-modal-whisperx')?.checked ?? true;
-    const runBtn = document.getElementById('btn-run-whisper-stt');
-    const originalText = runBtn.textContent;
-    runBtn.textContent = 'Äang kÃ­ch hoáº¡t Whisper...';
-    runBtn.disabled = true;
 
-    try {
-      const res = await apiPost('/subtitle/transcribe-video', {
-        path: videoPath,
-        language: language,
-        project_id: currentProjectId || 1,
-        vocal_separation: vocalSep,
-        whisperx: useWhisperX,
-      });
+  const language = document.getElementById('sel-stt-lang')?.value || 'vi';
+  const vocalSep = document.getElementById('chk-vocal-sep')?.checked ?? true;
+  const useWhisperX = document.getElementById('chk-modal-whisperx')?.checked ?? true;
+  const runBtn = document.getElementById('btn-run-whisper-stt');
+  const originalText = runBtn.textContent;
+  runBtn.textContent = 'Äang kÃ­ch hoáº¡t Whisper...';
+  runBtn.disabled = true;
+
+  try {
+    const res = await apiPost('/subtitle/transcribe-video', {
+      path: videoPath,
+      language: language,
+      project_id: currentProjectId || 1,
+      vocal_separation: vocalSep,
+      whisperx: useWhisperX,
+    });
     if (res) {
       document.getElementById('extract-sub-modal').classList.remove('show');
       alert('ÄÃ£ khá»Ÿi cháº¡y tiáº¿n trÃ¬nh Whisper STT cháº¡y ngáº§m thÃ nh cÃ´ng!\nBáº¡n cÃ³ thá»ƒ má»Ÿ Tab Phá»¥ Äá» / nháº¥n Xem Log Ä‘á»ƒ theo dÃµi tiáº¿n trÃ¬nh.');
-      
+
       // Periodically check subtitles list to auto-load when done
       const checkInterval = setInterval(async () => {
         try {
@@ -2992,7 +3067,7 @@ document.getElementById('btn-run-whisper-stt')?.addEventListener('click', async 
 });
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• EDIT TAB - CROP/RESIZE CHECKBOXES â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-document.getElementById('chk-edit-crop')?.addEventListener('change', function() {
+document.getElementById('chk-edit-crop')?.addEventListener('change', function () {
   if (this.checked) {
     const x = prompt('Tá»a Ä‘á»™ X cáº¯t:', '0'); if (x === null) { this.checked = false; return; }
     const y = prompt('Tá»a Ä‘á»™ Y cáº¯t:', '0'); if (y === null) { this.checked = false; return; }
@@ -3005,7 +3080,7 @@ document.getElementById('chk-edit-crop')?.addEventListener('change', function() 
   }
 });
 
-document.getElementById('chk-edit-scene-detect')?.addEventListener('change', function() {
+document.getElementById('chk-edit-scene-detect')?.addEventListener('change', function () {
   if (this.checked) {
     const videoPath = document.getElementById('inp-video-path')?.value || document.getElementById('inp-srt-path')?.value || '';
     if (videoPath) {
@@ -3015,7 +3090,7 @@ document.getElementById('chk-edit-scene-detect')?.addEventListener('change', fun
   }
 });
 
-document.getElementById('chk-edit-resize')?.addEventListener('change', function() {
+document.getElementById('chk-edit-resize')?.addEventListener('change', function () {
   if (this.checked) {
     const w = prompt('Chiá»u rá»™ng:', '1280'); if (w === null) { this.checked = false; return; }
     const h = prompt('Chiá»u cao:', '720'); if (h === null) { this.checked = false; return; }
@@ -3067,7 +3142,7 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 
 /* â”€â”€â”€ Wire timeline after load â”€â”€â”€ */
 const origLoadTimeline = loadTimeline;
-loadTimeline = async function(projectId) {
+loadTimeline = async function (projectId) {
   await origLoadTimeline(projectId);
   setTimeout(makeTimelineInteractive, 100);
 };
@@ -3163,8 +3238,8 @@ bindApiAction('btn-ai-speakers', '/ai/speakers', () => ({
       const originalText = btn.innerHTML;
       btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Äang xá»­ lÃ½...';
       setTimeout(() => {
-          btn.innerHTML = originalText;
-          alert('ÄÃ£ Ä‘Æ°a tiáº¿n trÃ¬nh dá»‹ch thuáº­t ' + id.replace('btn-sub-trans-', '').toUpperCase() + ' vÃ o hÃ ng Ä‘á»£i!');
+        btn.innerHTML = originalText;
+        alert('ÄÃ£ Ä‘Æ°a tiáº¿n trÃ¬nh dá»‹ch thuáº­t ' + id.replace('btn-sub-trans-', '').toUpperCase() + ' vÃ o hÃ ng Ä‘á»£i!');
       }, 1000);
     });
   }
@@ -3183,14 +3258,14 @@ if (btnQueue) {
    Æ¯u tiÃªn: API /queue â†’ fallback: .queue-job trong HTML
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const STATUS_COLOR = {
-  running:   '#a78bfa',
+  running: '#a78bfa',
   completed: '#22c55e',
-  done:      '#22c55e',
-  failed:    '#ef4444',
-  error:     '#ef4444',
-  paused:    '#f59e0b',
-  waiting:   '#94a3b8',
-  pending:   '#94a3b8',
+  done: '#22c55e',
+  failed: '#ef4444',
+  error: '#ef4444',
+  paused: '#f59e0b',
+  waiting: '#94a3b8',
+  pending: '#94a3b8',
 };
 
 function statusBadge(status) {
@@ -3219,7 +3294,7 @@ function updateQueueListUI(jobs) {
   }).join('');
 }
 
-window.showJobLogs = function(jobId) {
+window.showJobLogs = function (jobId) {
   const filterInput = document.getElementById('inp-log-filter');
   if (filterInput) {
     filterInput.value = jobId !== null ? jobId : '';
@@ -3249,12 +3324,12 @@ function renderQueueRows(jobs) {
   jobs.forEach((job, idx) => {
     rowCount++;
     const pct = job.progress || 0;
-    const inputName  = job.input_path  ? job.input_path.split(/[\\/]/).pop()  : (job.name || `video_${rowCount}.mp4`);
+    const inputName = job.input_path ? job.input_path.split(/[\\/]/).pop() : (job.name || `video_${rowCount}.mp4`);
     const outputName = job.output_path ? job.output_path.split(/[\\/]/).pop() : `output_${rowCount}.mp4`;
-    const elapsed    = job.elapsed     ? formatTime(job.elapsed)              : '--:--';
-    const subGoc     = job.sub_source  || '-';
-    const subDich    = job.sub_translated || '-';
-    const status     = job.status || 'pending';
+    const elapsed = job.elapsed ? formatTime(job.elapsed) : '--:--';
+    const subGoc = job.sub_source || '-';
+    const subDich = job.sub_translated || '-';
+    const status = job.status || 'pending';
 
     const row = document.createElement('div');
     row.className = 'result-row';
@@ -3426,21 +3501,27 @@ const cleanSidebarTree = {
   subtitle: {
     title: 'Ph\u1ee5 \u0111\u1ec1',
     tree: [
-      { label: 'Nh\u1eadp ph\u1ee5 \u0111\u1ec1', icon: 'ri-upload-cloud-2-line', children: [
-        { label: 'SRT', action: 'tab_subtitle' },
-        { label: 'ASS', action: 'tab_subtitle' },
-        { label: 'Nh\u1eadn di\u1ec7n g\u1ed1c', action: 'tab_subtitle_transcribe' },
-        { label: 'RapidOCR sub c\u1ee9ng', action: 'tab_subtitle_ocr' },
-      ]},
-      { label: '\u0110\u1ecbnh d\u1ea1ng', icon: 'ri-font-size', children: [
-        { label: 'V\u00f9ng ph\u1ee5 \u0111\u1ec1', action: 'subtitle_box' },
-        { label: 'L\u00e0m m\u1edd sub g\u1ed1c', action: 'subtitle_blur' },
-      ]},
-      { label: 'Xu\u1ea5t ph\u1ee5 \u0111\u1ec1', icon: 'ri-download-2-line', children: [
-        { label: 'G\u1eafn c\u1ee9ng', action: 'tab_subtitle_burn' },
-        { label: 'SRT', action: 'tab_subtitle_srt' },
-        { label: 'ASS', action: 'tab_subtitle_ass' },
-      ]},
+      {
+        label: 'Nh\u1eadp ph\u1ee5 \u0111\u1ec1', icon: 'ri-upload-cloud-2-line', children: [
+          { label: 'SRT', action: 'tab_subtitle' },
+          { label: 'ASS', action: 'tab_subtitle' },
+          { label: 'Nh\u1eadn di\u1ec7n g\u1ed1c', action: 'tab_subtitle_transcribe' },
+          { label: 'RapidOCR sub c\u1ee9ng', action: 'tab_subtitle_ocr' },
+        ]
+      },
+      {
+        label: '\u0110\u1ecbnh d\u1ea1ng', icon: 'ri-font-size', children: [
+          { label: 'V\u00f9ng ph\u1ee5 \u0111\u1ec1', action: 'subtitle_box' },
+          { label: 'L\u00e0m m\u1edd sub g\u1ed1c', action: 'subtitle_blur' },
+        ]
+      },
+      {
+        label: 'Xu\u1ea5t ph\u1ee5 \u0111\u1ec1', icon: 'ri-download-2-line', children: [
+          { label: 'G\u1eafn c\u1ee9ng', action: 'tab_subtitle_burn' },
+          { label: 'SRT', action: 'tab_subtitle_srt' },
+          { label: 'ASS', action: 'tab_subtitle_ass' },
+        ]
+      },
     ],
   },
   voice: {
@@ -3500,7 +3581,7 @@ const cleanSidebarTree = {
 Object.keys(sidebarTree).forEach(key => delete sidebarTree[key]);
 Object.assign(sidebarTree, cleanSidebarTree);
 
-renderTreeItems = function(items, depth = 0) {
+renderTreeItems = function (items, depth = 0) {
   let html = '';
   const pad = depth * 14;
   for (const item of items) {
@@ -3664,7 +3745,7 @@ async function handleSubtitleTranslation(engine) {
     validate(targetLang, 'language');
 
     if (!config.supportsLanguages.includes(sourceLang) || !config.supportsLanguages.includes(targetLang)) {
-      showToast(`${config.name} khong ho tro cap ngon ngu nay`, 'warn');
+      showToast(`${config.name} không hỗ trợ cặp ngôn ngữ này`, 'warn');
       return;
     }
 
