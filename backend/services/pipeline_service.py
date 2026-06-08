@@ -158,6 +158,7 @@ def _translate(item_id: int, project_id: int, params: dict, finalize: bool = Tru
     src = params.get("source_lang", "zh")
     tgt = params.get("target_lang", "vi")
     engine = params.get("translate_engine", "nllb")
+    model = params.get("translate_model")
 
     with db_cursor() as cur:
         row = cur.execute(
@@ -171,13 +172,13 @@ def _translate(item_id: int, project_id: int, params: dict, finalize: bool = Tru
     srt_content = row["content"]
     _log(item_id, "info", f"Translating {src}→{tgt} via {engine} ({len(srt_content)} chars)")
 
-    cache_path = _cache_path("translation", srt_content, {"src": src, "tgt": tgt, "engine": engine}, ".srt")
+    cache_path = _cache_path("translation", srt_content, {"src": src, "tgt": tgt, "engine": engine, "model": model}, ".srt")
     if cache_path.exists():
         translated = cache_path.read_text(encoding="utf-8")
         _log(item_id, "info", "Translation cache hit")
     else:
         from .translator import translate_srt
-        translated = translate_srt(srt_content, src, tgt, engine)
+        translated = translate_srt(srt_content, src, tgt, engine, model=model)
         cache_path.write_text(translated, encoding="utf-8")
 
     trans_path = SUBTITLES_DIR / f"project_{project_id}_translated.srt"

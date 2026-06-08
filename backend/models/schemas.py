@@ -110,6 +110,7 @@ class TranslateRequest(BaseModel):
     source_lang: str = "zh"
     target_lang: str = "vi"
     engine: str = "gpt"
+    model: Optional[str] = None
     project_id: Optional[int] = None
 
 

@@ -3,8 +3,11 @@ import re
 import subprocess
 import threading
 import asyncio
+import shutil
+import sys
+import warnings
 from pathlib import Path
-from ..config import AZURE_TTS_KEY, AZURE_TTS_REGION, ELEVENLABS_API_KEY
+from ..config import AZURE_TTS_KEY, AZURE_TTS_REGION, ELEVENLABS_API_KEY, VALTEC_TTS_DIR, CAPCUT_TTS_DIR, CAPCUT_SSCRONET_DLL
 from .text_normalizer import normalize_for_tts
 
 
@@ -12,6 +15,7 @@ TTS_TIMEOUT = 300  # seconds (increased for chunked synthesis)
 CHUNK_MAX_CHARS = 2000  # max characters per edge-tts request
 CHUNK_MAX_RETRIES = 3  # retry attempts per chunk
 CHUNK_RETRY_DELAY = 2  # seconds between retries (doubles each attempt)
+_valtec_tts_instance = None
 
 
 def _run_with_timeout(fn, args=(), kwargs=None, timeout=TTS_TIMEOUT):
@@ -116,6 +120,10 @@ def synthesize(text: str, provider: str, voice: str, speed: float, output_path: 
         _elevenlabs_tts(text, voice, output_path)
     elif provider == "google":
         _run_with_timeout(_google_tts, (text, voice, output_path))
+    elif provider == "valtec":
+        _run_with_timeout(_valtec_tts, (text, voice, speed, output_path))
+    elif provider == "capcut":
+        _run_with_timeout(_capcut_tts, (text, voice, speed, output_path))
     elif provider == "clone":
         _clone_tts(text, voice, output_path)
     else:
@@ -228,6 +236,156 @@ def _google_tts(text, voice, out):
         tts.save(out)
     except ImportError:
         _fallback_tts(text, out)
+
+
+def _write_audio_array(audio, sample_rate, out):
+    try:
+        import soundfile as sf
+        sf.write(out, audio, sample_rate)
+        return
+    except ImportError:
+        pass
+    try:
+        from scipy.io import wavfile
+        wavfile.write(out, sample_rate, audio)
+        return
+    except ImportError:
+        pass
+    raise RuntimeError("Valtec generated raw audio but soundfile/scipy is not installed")
+
+
+def _load_valtec_tts():
+    global _valtec_tts_instance
+    if _valtec_tts_instance is not None:
+        return _valtec_tts_instance
+
+    if VALTEC_TTS_DIR:
+        valtec_dir = Path(VALTEC_TTS_DIR).expanduser().resolve()
+        if valtec_dir.exists():
+            sys.path.insert(0, str(valtec_dir))
+
+    try:
+        from valtec_tts import TTS
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            warnings.filterwarnings(
+                "ignore",
+                module=r"torch\.nn\.utils\.weight_norm",
+                category=FutureWarning,
+            )
+            _valtec_tts_instance = ("package", TTS())
+        return _valtec_tts_instance
+    except Exception as package_error:
+        try:
+            from app import TTSInterface
+            _valtec_tts_instance = ("space", TTSInterface())
+            return _valtec_tts_instance
+        except Exception as space_error:
+            raise RuntimeError(
+                "Valtec TTS is not available. Install/clone it and set VALTEC_TTS_DIR. "
+                f"package_error={package_error}; space_error={space_error}"
+            )
+
+
+def _valtec_tts(text, voice, speed, out):
+    speaker = voice if voice in {"NF", "SF", "NM1", "SM", "NM2"} else "NF"
+    try:
+        kind, engine = _load_valtec_tts()
+        valtec_speed = max(0.5, min(2.0, float(speed or 1.0)))
+
+        if kind == "package":
+            engine.speak(text, output_path=out, speaker=speaker, speed=valtec_speed)
+            return
+
+        result_path, status = engine.synthesize(text, speaker, valtec_speed, 0.667, 0.8, 0.0)
+        if result_path and os.path.exists(result_path):
+            shutil.copy2(result_path, out)
+            return
+        raise RuntimeError(status or "Valtec returned no audio")
+    except Exception as e:
+        print(f"[TTS] Valtec error: {e}, falling back to edge_tts")
+        _edge_tts(text, "vi-VN-HoaiMyNeural", speed, out)
+
+
+def _find_capcut_sscronet() -> str:
+    if CAPCUT_SSCRONET_DLL and Path(CAPCUT_SSCRONET_DLL).exists():
+        return CAPCUT_SSCRONET_DLL
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        return ""
+    apps_dir = Path(local_appdata) / "CapCut" / "Apps"
+    if not apps_dir.exists():
+        return ""
+    matches = sorted(apps_dir.glob("**/sscronet.dll"), key=lambda p: str(p), reverse=True)
+    return str(matches[0]) if matches else ""
+
+
+def _parse_capcut_voice(voice: str):
+    parts = (voice or "").split("|")
+    name = parts[0] if len(parts) > 0 and parts[0] else "BV074_streaming_dsp"
+    resource_id = parts[1] if len(parts) > 1 and parts[1] else "7550087831092251920"
+    platform = parts[2] if len(parts) > 2 and parts[2] else "sami"
+    return name, resource_id, platform
+
+
+def _capcut_tts(text, voice, speed, out):
+    capcut_dir = Path(CAPCUT_TTS_DIR).expanduser().resolve()
+    win_dir = capcut_dir / "capcut_windows"
+    script = win_dir / "capcut_tts_ctypes.py"
+    helper = win_dir / "cronet_helper.dll"
+    sscronet = _find_capcut_sscronet()
+
+    if not script.exists():
+        raise RuntimeError(f"CapCut TTS script not found: {script}")
+    if not helper.exists():
+        raise RuntimeError(
+            f"CapCut cronet_helper.dll not found: {helper}. "
+            "Run vendor\\capcut-tts-api\\capcut_windows\\build.bat from a Visual Studio Developer Command Prompt."
+        )
+    if not sscronet:
+        raise RuntimeError(
+            "CapCut sscronet.dll not found. Install CapCut Desktop or set CAPCUT_SSCRONET_DLL "
+            "to ...\\AppData\\Local\\CapCut\\Apps\\<version>\\sscronet.dll."
+        )
+
+    name, resource_id, platform = _parse_capcut_voice(voice)
+    final_out = Path(out)
+    download_out = final_out if final_out.suffix.lower() == ".mp3" else final_out.with_suffix(".capcut.mp3")
+    env = os.environ.copy()
+    env.update({
+        "CAPCUT_TTS_OUTPUT": str(download_out),
+        "CAPCUT_SSCRONET_DLL": sscronet,
+        "CAPCUT_VOICE_NAME": name,
+        "CAPCUT_VOICE_RESOURCE_ID": resource_id,
+        "CAPCUT_VOICE_PLATFORM": platform,
+        "CAPCUT_VOICE_RATE": str(max(0.5, min(2.0, float(speed or 1.0)))),
+    })
+    cmd = [sys.executable, str(script), text]
+    startupinfo = subprocess.STARTUPINFO() if hasattr(subprocess, "STARTUPINFO") else None
+    if startupinfo is not None:
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    proc = subprocess.run(
+        cmd,
+        cwd=str(win_dir),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=TTS_TIMEOUT,
+        startupinfo=startupinfo,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"CapCut TTS failed: {(proc.stderr or proc.stdout)[-2000:]}")
+    if not download_out.exists() or download_out.stat().st_size == 0:
+        raise RuntimeError(f"CapCut TTS did not create output. Log: {(proc.stdout or proc.stderr)[-2000:]}")
+    if download_out != final_out:
+        from .ffmpeg_utils import run_ffmpeg
+        if not run_ffmpeg(["-i", str(download_out), "-ar", "22050", "-ac", "1", "-y", str(final_out)]):
+            raise RuntimeError("CapCut TTS audio conversion failed")
+        try:
+            download_out.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _clone_tts(text, voice, out):

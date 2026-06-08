@@ -80,7 +80,7 @@ def text_overlay(data: dict):
     pos = pos_map.get(position, "x=(w-text_w)/2:y=h-th-20")
     out = video_path.replace(".mp4", "_text.mp4")
     cmd = ["-i", video_path, "-vf", f"drawtext=text='{text}':fontcolor={color}@0.8:fontsize={font_size}:{pos}", "-c:a", "copy", "-y", out]
-    item_id = add_queue_item(data.get("project_id", 0), "ffmpeg_command", video_path, {"cmd": cmd, "output_path": out, "temp_files": [qr_file]})
+    item_id = add_queue_item(data.get("project_id", 0), "ffmpeg_command", video_path, {"cmd": cmd, "output_path": out})
     return {"id": item_id, "output": out}
 
 

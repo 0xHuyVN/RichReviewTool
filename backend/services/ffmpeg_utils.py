@@ -44,6 +44,13 @@ def _normalize_bitrate(value):
     return text
 
 
+def _volume01(value, default=1.0):
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _codec_name(params: dict) -> str:
     codec = str(params.get("codec", "h264")).strip().lower()
     return {"h265": "h265", "hevc": "h265", "h264": "h264", "av1": "av1"}.get(codec, "h264")
@@ -369,16 +376,36 @@ def single_pass_render(video_path: str, output_path: str, params: dict = None, p
         filter_nodes.append(f"{current_v_stream}scale={width}:{height}{scale_out}")
         current_v_stream = scale_out
 
-    # 3. Assemble Video Filters in Command
+    video_map_stream = current_v_stream if filter_nodes else "0:v:0"
+
+    # 3. Audio filter graph
+    audio_out_stream = None
+    if has_tts:
+        tts_volume = _volume01(p.get("tts_volume"), 1.0)
+        original_volume = _volume01(p.get("original_audio_volume"), 0.0)
+        has_original_audio = bool(info.get("audio_codec"))
+        if has_original_audio and original_volume > 0:
+            audio_out_stream = "[a_mix]"
+            filter_nodes.append(
+                f"[0:a]volume={original_volume}[a_orig];"
+                f"[1:a]volume={tts_volume}[a_tts];"
+                f"[a_orig][a_tts]amix=inputs=2:duration=first:dropout_transition=0{audio_out_stream}"
+            )
+        elif tts_volume < 1:
+            audio_out_stream = "[a_tts]"
+            filter_nodes.append(f"[1:a]volume={tts_volume}{audio_out_stream}")
+
+    # 4. Assemble filters and map streams
     if filter_nodes:
-        filter_complex_str = ";".join(filter_nodes)
-        cmd.extend(["-filter_complex", filter_complex_str])
-        cmd.extend(["-map", current_v_stream])
+        cmd.extend(["-filter_complex", ";".join(filter_nodes)])
+        cmd.extend(["-map", video_map_stream])
     else:
         cmd.extend(["-map", "0:v:0"])
 
-    # 4. Map Audio Stream
-    if has_tts:
+    if audio_out_stream:
+        cmd.extend(["-map", audio_out_stream])
+        cmd.append("-shortest")
+    elif has_tts:
         cmd.extend(["-map", "1:a:0"])
         cmd.append("-shortest")
     else:

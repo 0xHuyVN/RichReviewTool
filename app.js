@@ -860,15 +860,20 @@ executeBtn.addEventListener('click', async () => {
   const selTo = document.getElementById('sel-lang-to')?.value;
 
   const region = getSubBoxRegion();
+  const exportParams = typeof getExportRenderParams === 'function' ? getExportRenderParams().params : {};
   const params = {
+    ...exportParams,
     source_lang: LANG_MAP_EXEC[selFrom] || 'en',
     target_lang: LANG_MAP_EXEC[selTo] || 'vi',
     translate_engine: 'nllb',
+    translate_model: getSubtitleModel('nllb'),
     tts_provider: document.getElementById('sel-tts-provider')?.value === 'FPT.AI TTS' ? 'fpt' : (document.getElementById('sel-tts-provider')?.value?.toLowerCase().replace(' tts', '').replace(' (free)', '') || 'edge'),
     tts_voice: document.getElementById('sel-voice-type')?.value || 'vi-VN-HoaiMyNeural',
     tts_align: document.getElementById('chk-tts-align')?.checked ?? true,
+    ...getVoiceModeOptions(),
+    tts_enabled: (document.getElementById('chk-auto-voice')?.checked ?? true) && getVoiceModeOptions().tts_enabled,
     fpt_api_key: document.getElementById('inp-fpt-key')?.value || undefined,
-    burn_subtitle: document.querySelector('#tab-subtitle .custom-checkbox input')?.checked ?? true,
+    burn_subtitle: document.getElementById('chk-sub-burn')?.checked ?? true,
     output_name: inputName,
     output_dir: document.getElementById('inp-output-path')?.value || undefined,
     preset: document.getElementById('sel-project-preset')?.value || 'Movie Review',
@@ -960,7 +965,7 @@ let isRunning = false;
 let timerInterval = null;
 let remainingSeconds = 0;
 const queueFill = document.getElementById('queue-accent-fill');
-const remainingEl = document.getElementById('remaining-time');
+const remainingEl = document.getElementById('remaining-time') || { textContent: '' };
 
 function formatTime(s) {
   const hh = String(Math.floor(s / 3600)).padStart(2, '0');
@@ -1455,7 +1460,7 @@ document.getElementById('btn-ai-speakers')?.addEventListener('click', async () =
   }
 });
 
-// document.getElementById('btn-ai-thumbnail')?.addEventListener('click', ...);
+// AI thumbnail generation is not exposed in the current layout.
 
 document.getElementById('btn-ai-title')?.addEventListener('click', async () => {
   const result = await apiPost('/ai/title', { project_id: currentProjectId || 1 });
@@ -1526,6 +1531,7 @@ function getExportRenderParams() {
       subtitle_size: 42,
       subtitle_color: '#FFFFFF',
       subtitle_shadow: 'soft',
+      ...getVoiceModeOptions(),
       tts_enabled: false,
     },
   };
@@ -1768,6 +1774,7 @@ document.getElementById('btn-music-folder')?.addEventListener('click', async () 
 document.getElementById('btn-enhance-apply')?.addEventListener('click', async () => {
   const lut = document.getElementById('sel-enhance-lut')?.value;
   const r = await apiPost('/enhance/apply', {
+    project_id: currentProjectId || 1,
     video_path: document.getElementById('inp-video-path')?.value || document.getElementById('inp-srt-path')?.value || '',
     lut: lut === 'None' ? null : lut,
     brightness: parseInt(document.getElementById('slider-enhance-brightness')?.value || '50'),
@@ -1879,6 +1886,34 @@ async function getSubtitleText() {
   return '';
 }
 
+function getLangCodeFromSelect(id, fallback = 'vi') {
+  const value = document.getElementById(id)?.value;
+  const map = {
+    'Tiếng Anh': 'en', 'Tiáº¿ng Anh': 'en',
+    'Tiếng Trung': 'zh', 'Tiáº¿ng Trung': 'zh',
+    'Tiếng Nhật': 'ja', 'Tiáº¿ng Nháº­t': 'ja',
+    'Tiếng Hàn': 'ko', 'Tiáº¿ng HÃ n': 'ko',
+    'Tiếng Việt': 'vi', 'Tiáº¿ng Viá»‡t': 'vi',
+  };
+  return map[value] || fallback;
+}
+
+function getSubtitleModel(engine) {
+  if (engine === 'gpt') return document.getElementById('sel-sub-gpt-model')?.value || 'GPT-4';
+  if (engine === 'nllb') return document.getElementById('sel-sub-nllb-model')?.value || 'facebook/nllb-200-distilled-600M';
+  return undefined;
+}
+
+function getVoiceModeOptions() {
+  const modeSelect = document.getElementById('sel-voice-mode');
+  const voiceEnabled = (modeSelect?.selectedIndex ?? 0) !== 1;
+  return {
+    tts_enabled: voiceEnabled,
+    tts_volume: Number(document.getElementById('slider-voice-volume')?.value || 85) / 100,
+    original_audio_volume: Number(document.getElementById('slider-orig-audio')?.value || 10) / 100,
+  };
+}
+
 document.getElementById('btn-sub-transcribe')?.addEventListener('click', async () => {
   const btn = document.getElementById('btn-sub-transcribe');
   const videoPath = document.getElementById('inp-video-path')?.value || '';
@@ -1971,8 +2006,10 @@ document.getElementById('btn-sub-trans-gpt')?.addEventListener('click', async ()
   try {
     await apiPost('/subtitle/translate', {
       text, engine: 'gpt',
-      source_lang: document.getElementById('sel-lang-from')?.value === 'Tiếng Anh' ? 'en' : 'zh',
-      target_lang: document.getElementById('sel-lang-to')?.value === 'Tiếng Anh' ? 'en' : 'vi',
+      model: getSubtitleModel('gpt'),
+      source_lang: getLangCodeFromSelect('sel-lang-from', 'zh'),
+      target_lang: getLangCodeFromSelect('sel-lang-to', 'vi'),
+      project_id: currentProjectId || null,
     });
     addTaskRow();
   } catch (e) {
@@ -1993,8 +2030,9 @@ document.getElementById('btn-sub-trans-gemini')?.addEventListener('click', async
   try {
     await apiPost('/subtitle/translate', {
       text, engine: 'gemini',
-      source_lang: document.getElementById('sel-lang-from')?.value === 'Tiếng Anh' ? 'en' : 'zh',
-      target_lang: document.getElementById('sel-lang-to')?.value === 'Tiếng Anh' ? 'en' : 'vi',
+      source_lang: getLangCodeFromSelect('sel-lang-from', 'zh'),
+      target_lang: getLangCodeFromSelect('sel-lang-to', 'vi'),
+      project_id: currentProjectId || null,
     });
     addTaskRow();
   } catch (e) {
@@ -2091,6 +2129,7 @@ document.getElementById('btn-sub-trans-nllb')?.addEventListener('click', async (
     // Start async job
     const startRes = await apiPost('/subtitle/translate', {
       text, engine: 'nllb',
+      model: getSubtitleModel('nllb'),
       source_lang: srcCode,
       target_lang: dstCode,
       project_id: currentProjectId || null,
@@ -2169,8 +2208,9 @@ document.getElementById('btn-sub-trans-marian')?.addEventListener('click', async
   try {
     await apiPost('/subtitle/translate', {
       text, engine: 'marian',
-      source_lang: document.getElementById('sel-lang-from')?.value === 'Tiếng Anh' ? 'en' : 'zh',
-      target_lang: document.getElementById('sel-lang-to')?.value === 'Tiếng Anh' ? 'en' : 'vi',
+      source_lang: getLangCodeFromSelect('sel-lang-from', 'zh'),
+      target_lang: getLangCodeFromSelect('sel-lang-to', 'vi'),
+      project_id: currentProjectId || null,
     });
     addTaskRow();
   } catch (e) {
@@ -2186,8 +2226,10 @@ document.getElementById('btn-sub-trans-batch')?.addEventListener('click', async 
   if (!text) { alert('Chưa tải phụ đề.'); return; }
   await apiPost('/subtitle/translate', {
     text, engine: 'gpt',
-    source_lang: document.getElementById('sel-lang-from')?.value === 'Tiếng Anh' ? 'en' : 'zh',
-    target_lang: document.getElementById('sel-lang-to')?.value === 'Tiếng Anh' ? 'en' : 'vi',
+    model: getSubtitleModel('gpt'),
+    source_lang: getLangCodeFromSelect('sel-lang-from', 'zh'),
+    target_lang: getLangCodeFromSelect('sel-lang-to', 'vi'),
+    project_id: currentProjectId || null,
   });
   addTaskRow();
 });
@@ -2825,8 +2867,27 @@ document.getElementById('inp-bgm-vol') && (() => {
 })();
 
 /* ═══════════════ AUTO VOICE TOGGLE ═══════════════ */
+function syncVoiceControls() {
+  const autoEnabled = document.getElementById('chk-auto-voice')?.checked ?? true;
+  const voiceModeEnabled = getVoiceModeOptions().tts_enabled;
+  const ttsControlsEnabled = autoEnabled && voiceModeEnabled;
+  const ttsInputs = ['sel-tts-provider', 'sel-voice-lang', 'sel-voice-type', 'btn-play-voice', 'chk-tts-align'];
+  ttsInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = !ttsControlsEnabled;
+      el.style.opacity = ttsControlsEnabled ? '1' : '0.4';
+    }
+  });
+  const mode = document.getElementById('sel-voice-mode');
+  if (mode) {
+    mode.disabled = !autoEnabled;
+    mode.style.opacity = autoEnabled ? '1' : '0.4';
+  }
+}
+
 document.getElementById('chk-auto-voice')?.addEventListener('change', function () {
-  const inputs = ['sel-tts-provider', 'sel-voice-lang', 'sel-voice-type', 'btn-play-voice', 'sel-voice-mode', 'chk-keep-bgm', 'inp-bgm-vol'];
+  const inputs = ['chk-keep-bgm', 'inp-bgm-vol'];
   inputs.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -2834,7 +2895,10 @@ document.getElementById('chk-auto-voice')?.addEventListener('change', function (
       el.style.opacity = this.checked ? '1' : '0.4';
     }
   });
+  syncVoiceControls();
 });
+document.getElementById('sel-voice-mode')?.addEventListener('change', syncVoiceControls);
+syncVoiceControls();
 
 /* ═══════════════ SPEED RAMP / MOTION EFFECTS HANDLERS ═══════════════ */
 document.querySelectorAll('#tab-enhance .custom-checkbox input').forEach(chk => {
@@ -2957,18 +3021,84 @@ document.getElementById('btn-play-voice')?.addEventListener('click', async () =>
   audio.play().catch(() => alert('Nghe thử giọng nói: ' + text));
 });
 
+/* Voice preview WAV player: capture handler overrides the legacy JSON-as-audio handler above. */
+(function attachVoicePreviewPlayer() {
+  const btn = document.getElementById('btn-play-voice');
+  if (!btn || btn.dataset.previewPlayerAttached === '1') return;
+  btn.dataset.previewPlayerAttached = '1';
+
+  const providerId = () => {
+    const value = document.getElementById('sel-tts-provider')?.value || 'Edge TTS';
+    if (value === 'FPT.AI TTS') return 'fpt';
+    return value.toLowerCase().replace(' tts', '').replace(' (free)', '') || 'edge';
+  };
+
+  const waitForOutput = async (itemId, knownOutputPath, timeoutMs = 180000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const jobs = await apiGet('/queue');
+      const job = (jobs || []).find(j => Number(j.id) === Number(itemId));
+      if (job?.status === 'completed') return job.output_path || knownOutputPath;
+      if (job?.status === 'failed') throw new Error(job.error || 'Tao WAV nghe thu that bai');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    throw new Error('Tao WAV nghe thu qua lau');
+  };
+
+  btn.addEventListener('click', async (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const audioEl = document.getElementById('voice-preview-audio');
+    const text = 'Xin chao, day la giong doc thu nghiem de kiem tra co hop voi video hay khong.';
+    const voice = document.getElementById('sel-voice-type')?.value || 'vi-VN-HoaiMyNeural';
+    const fptKey = document.getElementById('inp-fpt-key')?.value || '';
+    const oldHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+    try {
+      const result = await apiGet(`/voice/play?text=${encodeURIComponent(text)}&provider=${encodeURIComponent(providerId())}&voice=${encodeURIComponent(voice)}&fpt_api_key=${encodeURIComponent(fptKey)}&project_id=${currentProjectId || 0}`);
+      if (!result?.id) throw new Error('Backend khong tao duoc job nghe thu');
+      const outputPath = await waitForOutput(result.id, result.output);
+      const src = `/api/video/serve?path=${encodeURIComponent(outputPath)}&t=${Date.now()}`;
+      if (audioEl) {
+        audioEl.src = src;
+        audioEl.style.display = 'block';
+        audioEl.load();
+        await audioEl.play().catch(() => {});
+      } else {
+        await new Audio(src).play().catch(() => {});
+      }
+    } catch (e) {
+      alert('Nghe thu giong noi that bai: ' + (e.message || e));
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i class="ri-volume-up-line"></i>';
+    }
+  }, true);
+})();
+
 /* ═══════════════ TRANSLATE SETTINGS ═══════════════ */
 document.getElementById('btn-translate-settings')?.addEventListener('click', () => {
   alert('Translation settings:\n- GPT: requires OPENAI_API_KEY\n- Gemini: requires GEMINI_API_KEY\n- NLLB-200: runs locally (requires transformers)\n- MarianMT: runs locally (lightweight)\nConfigure API keys in Settings modal.');
 });
 
 /* ═══════════════ ENHANCE BRANDING BUTTONS ═══════════════ */
+function getBrandingUiOptions() {
+  const posIndex = document.getElementById('sel-enhance-brand-pos')?.selectedIndex ?? 1;
+  const position = ['top_right', 'bottom_right', 'center'][posIndex] || 'bottom_right';
+  const opacityRaw = Number(document.getElementById('inp-enhance-opacity')?.value || 70);
+  const opacity = Math.max(0, Math.min(1, opacityRaw / 100));
+  return { position, opacity };
+}
+
 document.getElementById('btn-branding-logo')?.addEventListener('click', async () => {
   const videoPath = document.getElementById('inp-video-path')?.value || document.getElementById('inp-srt-path')?.value || '';
   if (!videoPath) { alert('Chưa chọn video'); return; }
   const logoPath = prompt('Đường dẫn hình ảnh logo:', '');
   if (!logoPath) return;
-  await apiPost('/enhance/branding/logo', { video_path: videoPath, logo_path: logoPath, position: 'bottom_right', opacity: 0.7 });
+  await apiPost('/enhance/branding/logo', { video_path: videoPath, logo_path: logoPath, ...getBrandingUiOptions(), project_id: currentProjectId || 1 });
   addTaskRow();
 });
 
@@ -2977,7 +3107,9 @@ document.getElementById('btn-branding-text')?.addEventListener('click', async ()
   if (!videoPath) { alert('Chưa chọn video'); return; }
   const text = prompt('Văn bản chèn:', '0xForge');
   if (!text) return;
-  await apiPost('/enhance/branding/text', { video_path: videoPath, text, position: 'bottom', font_size: 48 });
+  const opts = getBrandingUiOptions();
+  const textPosition = opts.position === 'top_right' ? 'top' : opts.position === 'center' ? 'center' : 'bottom';
+  await apiPost('/enhance/branding/text', { video_path: videoPath, text, position: textPosition, font_size: 48, project_id: currentProjectId || 1 });
   addTaskRow();
 });
 
@@ -2986,7 +3118,7 @@ document.getElementById('btn-branding-qr')?.addEventListener('click', async () =
   if (!videoPath) { alert('Chưa chọn video'); return; }
   const content = prompt('Nội dung QR (URL):', 'https://example.com');
   if (!content) return;
-  await apiPost('/enhance/branding/qr', { video_path: videoPath, content, position: 'bottom_right', size: 120 });
+  await apiPost('/enhance/branding/qr', { video_path: videoPath, content, position: getBrandingUiOptions().position, size: 120, project_id: currentProjectId || 1 });
   addTaskRow();
 });
 
@@ -3399,6 +3531,77 @@ window.showJobLogs = function (jobId) {
   }
 };
 
+function fileBaseName(path, fallback = '-') {
+  return path ? String(path).split(/[\\/]/).pop() : fallback;
+}
+
+function queueElapsed(job) {
+  if (job.elapsed) return formatTime(job.elapsed);
+  if (job.started_at) {
+    const seconds = Math.max(0, Number(job.updated_at || Date.now() / 1000) - Number(job.started_at));
+    return formatTime(seconds);
+  }
+  return '--:--';
+}
+
+function queueLatestMessage(job) {
+  return job.error || job.last_log || job.message || (job.status === 'completed' ? 'Output ready' : 'Waiting for worker');
+}
+
+statusBadge = function (status) {
+  const color = STATUS_COLOR[status] || '#94a3b8';
+  const label = status ? String(status).toUpperCase() : '-';
+  return `<span class="queue-status-badge queue-status-${status || 'pending'}" style="color:${color}">${label}</span>`;
+};
+
+updateQueueListUI = function (jobs) {
+  const queueList = document.querySelector('.queue-list');
+  if (!queueList) return;
+  updateWorkspaceStats(jobs || []);
+  if (!jobs || jobs.length === 0) {
+    queueList.innerHTML = '<div class="queue-empty">Chưa có job nào trong hàng chờ</div>';
+    return;
+  }
+  queueList.innerHTML = jobs.map(item => {
+    const statusIcon = item.status === 'running' ? 'RUN' : item.status === 'paused' ? 'PAUSE' : item.status === 'completed' ? 'OK' : item.status === 'failed' ? 'ERR' : 'WAIT';
+    const activeClass = item.status === 'running' ? 'active' : '';
+    const name = fileBaseName(item.input_path, `${String(item.type || 'job').toUpperCase()} #${item.id || 'N/A'}`);
+    const output = fileBaseName(item.output_path, item.status === 'completed' ? 'Output missing' : 'Output pending');
+    const pct = Math.max(0, Math.min(100, Number(item.progress || 0)));
+    const latest = queueLatestMessage(item);
+    const duration = queueElapsed(item);
+    const type = item.type || 'render';
+    const retryButton = item.status === 'failed'
+      ? `<button class="queue-card-action" data-queue-action="retry" data-id="${item.id || ''}" title="Retry job"><i class="ri-refresh-line"></i></button>`
+      : '';
+    const openButton = item.output_path
+      ? `<button class="queue-card-action" data-queue-action="open-output" data-path="${escapeHtml(item.output_path)}" title="Copy output path"><i class="ri-folder-open-line"></i></button>`
+      : '';
+    return `
+      <div class="queue-job ${activeClass}" data-id="${item.id || ''}" data-status="${item.status || 'pending'}" style="cursor:pointer" onclick="showJobLogs(${item.id || 'null'})">
+        <div class="queue-card-main">
+          <span class="queue-status-icon ${item.status || 'pending'}">${statusIcon}</span>
+          <div class="queue-card-copy">
+            <span class="queue-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+            <span class="queue-latest" title="${escapeHtml(latest)}">${escapeHtml(latest)}</span>
+          </div>
+          <div class="queue-card-meta">
+            <span>${escapeHtml(type)}</span>
+            <span>${duration}</span>
+          </div>
+        </div>
+        <div class="queue-card-progress" aria-label="Job progress">
+          <span style="width:${pct}%"></span>
+        </div>
+        <div class="queue-card-footer">
+          <span class="queue-output" title="${escapeHtml(output)}">${escapeHtml(output)}</span>
+          <div class="queue-card-actions">${retryButton}${openButton}<button class="queue-card-action" data-queue-action="logs" data-id="${item.id || ''}" title="Open logs"><i class="ri-file-list-3-line"></i></button></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+};
+
 function renderQueueRows(jobs) {
   const body = document.getElementById('result-table-body');
   if (!body) return;
@@ -3521,6 +3724,38 @@ function updateVoiceDropdown() {
     ];
     typeSel.innerHTML = '';
     fptVoices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.value;
+      opt.textContent = v.text;
+      typeSel.appendChild(opt);
+    });
+    return;
+  }
+
+  if (provider === 'Valtec TTS') {
+    const valtecVoices = [
+      { value: 'NF', text: 'NF - Nữ miền Bắc' },
+      { value: 'SF', text: 'SF - Nữ miền Nam' },
+      { value: 'NM1', text: 'NM1 - Nam miền Bắc' },
+      { value: 'SM', text: 'SM - Nam miền Nam' },
+      { value: 'NM2', text: 'NM2 - Nam miền Bắc 2' }
+    ];
+    typeSel.innerHTML = '';
+    valtecVoices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.value;
+      opt.textContent = v.text;
+      typeSel.appendChild(opt);
+    });
+    return;
+  }
+
+  if (provider === 'CapCut TTS') {
+    const capcutVoices = [
+      { value: 'BV074_streaming_dsp|7550087831092251920|sami', text: 'CapCut BV074' }
+    ];
+    typeSel.innerHTML = '';
+    capcutVoices.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v.value;
       opt.textContent = v.text;
@@ -3977,11 +4212,58 @@ document.querySelectorAll('[data-workspace-action]').forEach(btn => {
   });
 });
 
+document.addEventListener('click', async (event) => {
+  const presetCard = event.target.closest?.('.preset-card');
+  if (presetCard) {
+    document.querySelectorAll('.preset-card').forEach(card => card.classList.remove('active'));
+    presetCard.classList.add('active');
+    const presetName = presetCard.dataset.presetName || presetCard.querySelector('.preset-card-title')?.textContent || 'Custom';
+    const presetSelect = document.getElementById('sel-project-preset');
+    if (presetSelect) {
+      const existing = [...presetSelect.options].find(option => option.value === presetName || option.textContent === presetName);
+      if (existing) {
+        presetSelect.value = existing.value;
+      } else {
+        presetSelect.add(new Option(presetName, presetName));
+        presetSelect.value = presetName;
+      }
+      presetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const summary = document.getElementById('preset-summary');
+    if (summary) {
+      summary.textContent = `${presetCard.dataset.resolution || '-'} · ${presetCard.dataset.fps || '-'}fps · ${presetCard.dataset.codec || '-'} · ${presetCard.dataset.voice || '-'} · ${presetCard.dataset.subtitle || '-'}`;
+    }
+    return;
+  }
+
+  const queueAction = event.target.closest?.('[data-queue-action]');
+  if (!queueAction) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const action = queueAction.dataset.queueAction;
+  const id = queueAction.dataset.id;
+  if (action === 'logs') {
+    window.showJobLogs(id || null);
+  } else if (action === 'retry' && id) {
+    await apiPost(`/queue/${id}/retry`);
+    const jobs = await apiGet('/queue');
+    renderQueueRows(jobs || []);
+  } else if (action === 'open-output') {
+    const path = queueAction.dataset.path || '';
+    if (path && navigator.clipboard) {
+      await navigator.clipboard.writeText(path);
+      showToast('Đã copy đường dẫn output', 'success', 1800);
+    } else if (path) {
+      showToast(path, 'info', 3000);
+    }
+  }
+});
+
 function updateWorkspaceMetadata() {
   const videoPath = document.getElementById('inp-video-path')?.value || '';
   const outputPath = document.getElementById('inp-output-path')?.value || '';
   const preset = document.getElementById('sel-project-preset')?.value || 'Movie Review';
-  const fps = document.getElementById('inp-fps')?.value || '30';
+  const fps = document.getElementById('sel-export-fps')?.value || '30';
   const provider = document.getElementById('sel-tts-provider')?.value || 'Edge TTS';
   const subtitleEnabled = document.getElementById('chk-translate')?.checked;
   const videoName = videoPath ? videoPath.split(/[\\/]/).pop() : 'Chưa chọn video';
@@ -4095,3 +4377,134 @@ document.addEventListener('keydown', (event) => {
 });
 
 updateWorkspaceMetadata();
+
+/* UI bridge for replaced layouts: connects presentational controls that are not part of the core pipeline. */
+(function attachLayoutBridge() {
+  const onceKey = '__layoutBridgeAttached';
+  if (window[onceKey]) return;
+  window[onceKey] = true;
+
+  const toast = (message, type = 'info') => {
+    if (typeof showToast === 'function') showToast(message, type, 2200);
+    else console.log(`[${type}] ${message}`);
+  };
+
+  const click = (id) => document.getElementById(id)?.click();
+  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const switchTab = (tabId) => {
+    const tab = document.querySelector(`#processing-tabs .tab[data-target="${tabId}"]`);
+    if (tab) {
+      if (window._switchTab) window._switchTab(tab);
+      else tab.click();
+      scrollTo('processing-panel');
+    }
+  };
+
+  document.getElementById('sidebar-hamburger')?.addEventListener('click', () => {
+    document.body.classList.toggle('sidebar-compact');
+    toast(document.body.classList.contains('sidebar-compact') ? 'Da thu gon sidebar' : 'Da mo rong sidebar');
+  });
+
+  document.getElementById('toggle-mode')?.addEventListener('change', (event) => {
+    document.body.classList.toggle('light-mode', Boolean(event.target.checked));
+    try { localStorage.setItem('ui.lightMode', event.target.checked ? '1' : '0'); } catch {}
+  });
+
+  try {
+    const light = localStorage.getItem('ui.lightMode') === '1';
+    document.body.classList.toggle('light-mode', light);
+    const toggle = document.getElementById('toggle-mode');
+    if (toggle) toggle.checked = light;
+  } catch {}
+
+  const assetActions = [
+    { test: /video/i, run: () => click('btn-browse-video') },
+    { test: /nhạc|music/i, run: () => switchTab('tab-music') },
+    { test: /giọng|voice/i, run: () => switchTab('tab-voice') },
+    { test: /phụ|sub/i, run: () => switchTab('tab-subtitle') },
+    { test: /đóng|watermark|dấu/i, run: () => switchTab('tab-enhance') },
+    { test: /mẫu|template/i, run: () => click('btn-load-template') },
+  ];
+  document.querySelectorAll('#asset-library .asset-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('#asset-library .asset-item').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      const label = item.textContent || '';
+      assetActions.find(action => action.test.test(label))?.run();
+    });
+  });
+
+  document.getElementById('btn-preview-crop')?.addEventListener('click', () => {
+    const crop = document.getElementById('chk-crop-video');
+    if (crop) {
+      crop.checked = !crop.checked;
+      crop.dispatchEvent(new Event('change', { bubbles: true }));
+      toast(crop.checked ? 'Da bat crop video' : 'Da tat crop video');
+    }
+    scrollTo('work-mode-panel');
+  });
+
+  document.getElementById('btn-preview-image')?.addEventListener('click', () => {
+    switchTab('tab-enhance');
+    click('btn-branding-logo');
+  });
+
+  document.getElementById('btn-preview-gallery')?.addEventListener('click', () => {
+    switchTab('tab-edit');
+    toast('Mo tab chinh sua de quan ly canh va media.');
+  });
+
+  document.getElementById('btn-preview-text')?.addEventListener('click', () => {
+    switchTab('tab-enhance');
+    click('btn-branding-text');
+  });
+
+  document.querySelectorAll('.live-range').forEach(range => {
+    const update = () => {
+      const value = range.closest('.slider-row')?.querySelector('.range-val');
+      if (value) value.textContent = range.id.includes('volume') || range.id.includes('audio') ? `${range.value}%` : range.value;
+    };
+    range.addEventListener('input', update);
+    update();
+  });
+
+  ['chk-music-auto-add', 'chk-music-random', 'chk-enhance-hdr', 'chk-enhance-denoise', 'chk-sub-dual'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', (event) => {
+      const label = event.target.closest('label')?.textContent?.trim() || id;
+      toast(`${label}: ${event.target.checked ? 'bat' : 'tat'}`);
+    });
+  });
+
+  document.getElementById('sel-work-mode')?.addEventListener('change', (event) => {
+    const custom = /tuy|tùy|custom/i.test(event.target.value);
+    const resize = document.getElementById('chk-resize');
+    if (resize) {
+      resize.checked = custom;
+      resize.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    toast(`Che do lam viec: ${event.target.value}`);
+  });
+
+  document.getElementById('sel-export-fps')?.addEventListener('change', (event) => {
+    const previewFps = document.getElementById('preview-fps');
+    if (previewFps) previewFps.textContent = event.target.value || '30';
+  });
+
+  document.getElementById('chk-keep-ratio')?.addEventListener('change', (event) => {
+    toast(event.target.checked ? 'Giu ty le khung hinh' : 'Cho phep doi ty le tu do');
+  });
+
+  const originalRenderQueueRows = window.renderQueueRows;
+  const refreshQueueHealth = () => {
+    const health = document.getElementById('queue-health-text');
+    if (!health) return;
+    const running = Number(document.getElementById('queue-running-total')?.textContent || 0);
+    const failed = Number(document.getElementById('queue-failed-total')?.textContent || 0);
+    if (running > 0) health.textContent = `${running} task dang chay`;
+    else if (failed > 0) health.textContent = `${failed} task loi can kiem tra`;
+    else health.textContent = 'Chua co task dang chay';
+  };
+  window.refreshQueueHealth = refreshQueueHealth;
+  setInterval(refreshQueueHealth, 2500);
+  refreshQueueHealth();
+})();

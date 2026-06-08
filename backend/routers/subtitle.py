@@ -178,11 +178,12 @@ def translate_subtitle(data: TranslateRequest):
     if "-->" in text:
         job_id = translate_srt_async(
             text, data.source_lang, data.target_lang, data.engine,
+            model=data.model,
             project_id=data.project_id
         )
     else:
         # For plain text use blocking translate (fast)
-        result = translate_text(text, data.source_lang, data.target_lang, data.engine)
+        result = translate_text(text, data.source_lang, data.target_lang, data.engine, model=data.model)
         return {"job_id": None, "translated": result, "status": "done", "progress": 100}
     return {"job_id": job_id, "status": "running", "progress": 0}
 

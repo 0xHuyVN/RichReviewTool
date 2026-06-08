@@ -17,15 +17,15 @@ def _is_translation_error(result: str) -> bool:
     return result.startswith(_TRANSLATION_ERROR_PREFIXES)
 
 
-def translate_text(text: str, source_lang: str = "zh", target_lang: str = "vi", engine: str = "nllb") -> str:
+def translate_text(text: str, source_lang: str = "zh", target_lang: str = "vi", engine: str = "nllb", model: str = None) -> str:
     if engine == "gpt":
-        return _translate_gpt(text, source_lang, target_lang)
+        return _translate_gpt(text, source_lang, target_lang, model)
     elif engine == "gemini":
-        return _translate_gemini(text, source_lang, target_lang)
+        return _translate_gemini(text, source_lang, target_lang, model)
     elif engine == "google":
         return _translate_google(text, source_lang, target_lang)
     elif engine == "nllb":
-        return _translate_nllb(text, source_lang, target_lang)
+        return _translate_nllb(text, source_lang, target_lang, model)
     elif engine == "marian":
         return _translate_marian(text, source_lang, target_lang)
     return text
@@ -49,31 +49,31 @@ def get_job(job_id: str) -> dict:
         return dict(_JOBS.get(job_id, {}))
 
 
-def translate_srt(srt_content: str, source_lang: str = "zh", target_lang: str = "vi", engine: str = "nllb") -> str:
+def translate_srt(srt_content: str, source_lang: str = "zh", target_lang: str = "vi", engine: str = "nllb", model: str = None) -> str:
     """Blocking translate — used internally / by API models."""
     job_id = str(uuid.uuid4())
     _job_set(job_id, status="running", progress=0, result=None, error=None)
-    _translate_srt_sync(job_id, srt_content, source_lang, target_lang, engine)
+    _translate_srt_sync(job_id, srt_content, source_lang, target_lang, engine, model)
     job = _JOBS.get(job_id, {})
     if job.get("status") == "error":
         raise RuntimeError(job.get("error", "Translation failed"))
     return job.get("result") or ""
 
 
-def translate_srt_async(srt_content: str, source_lang: str = "zh", target_lang: str = "vi", engine: str = "nllb", project_id=None) -> str:
+def translate_srt_async(srt_content: str, source_lang: str = "zh", target_lang: str = "vi", engine: str = "nllb", model: str = None, project_id=None) -> str:
     """Async translate — starts a background thread, returns job_id immediately."""
     job_id = str(uuid.uuid4())
     _job_set(job_id, status="running", progress=0, result=None, error=None, project_id=project_id)
     t = threading.Thread(
         target=_translate_srt_sync,
-        args=(job_id, srt_content, source_lang, target_lang, engine),
+        args=(job_id, srt_content, source_lang, target_lang, engine, model),
         daemon=True,
     )
     t.start()
     return job_id
 
 
-def _translate_srt_sync(job_id: str, srt_content: str, source_lang: str, target_lang: str, engine: str):
+def _translate_srt_sync(job_id: str, srt_content: str, source_lang: str, target_lang: str, engine: str, model: str = None):
     """Parse SRT, translate block-by-block with progress updates, store result."""
     try:
         lines = srt_content.strip().split("\n")
@@ -111,7 +111,7 @@ def _translate_srt_sync(job_id: str, srt_content: str, source_lang: str, target_
                 texts = [blk[2] for blk in chunk]
                 joined = "\n".join(texts)
                 if joined.strip():
-                    translated_joined = translate_text(joined, source_lang, target_lang, engine)
+                    translated_joined = translate_text(joined, source_lang, target_lang, engine, model)
                     if _is_translation_error(translated_joined):
                         raise RuntimeError(translated_joined)
                     parts = translated_joined.split("\n")
@@ -131,7 +131,7 @@ def _translate_srt_sync(job_id: str, srt_content: str, source_lang: str, target_
         # ── API models (gpt, gemini, google): per-block with progress ─────────
         else:
             for n, (idx, time_line, text) in enumerate(text_blocks):
-                translated = translate_text(text, source_lang, target_lang, engine) if text else ""
+                translated = translate_text(text, source_lang, target_lang, engine, model) if text else ""
                 if _is_translation_error(translated):
                     raise RuntimeError(translated)
                 result_blocks.append(f"{idx}\n{time_line}\n{translated}\n")
@@ -189,15 +189,28 @@ def _translate_worker_script():
 _translate_proc = None
 _translate_proc_lock = threading.Lock()
 _translate_proc_engine = None
+_translate_proc_model = None
 
 
-def _get_translate_worker(engine: str):
+def _normalise_local_model(engine: str, model: str = None) -> str:
+    model = (model or "").strip()
+    if engine == "nllb":
+        allowed = {
+            "facebook/nllb-200-distilled-600M",
+            "facebook/nllb-200-distilled-1.3B",
+        }
+        return model if model in allowed else "facebook/nllb-200-distilled-600M"
+    return model
+
+
+def _get_translate_worker(engine: str, model: str = None):
     """Get or create a persistent translate worker subprocess."""
-    global _translate_proc, _translate_proc_engine
+    global _translate_proc, _translate_proc_engine, _translate_proc_model
+    model = _normalise_local_model(engine, model)
     with _translate_proc_lock:
         if _translate_proc is not None and _translate_proc.poll() is not None:
             _translate_proc = None
-        if _translate_proc is None or _translate_proc_engine != engine:
+        if _translate_proc is None or _translate_proc_engine != engine or _translate_proc_model != model:
             if _translate_proc is not None:
                 _translate_proc.stdin.close()
                 _translate_proc.wait(timeout=5)
@@ -212,20 +225,22 @@ def _get_translate_worker(engine: str):
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             _translate_proc_engine = engine
+            _translate_proc_model = model
             # Send first request to trigger model loading
-            _translate_proc.stdin.write(json.dumps({"engine": engine, "text": "", "src": "zh", "tgt": "vi"}) + "\n")
+            _translate_proc.stdin.write(json.dumps({"engine": engine, "model": model, "text": "", "src": "zh", "tgt": "vi"}) + "\n")
             _translate_proc.stdin.flush()
             _translate_proc.stdout.readline()  # discard warmup response
         return _translate_proc
 
 
-def _call_translate_worker(engine: str, text: str, src: str, tgt: str) -> str:
+def _call_translate_worker(engine: str, text: str, src: str, tgt: str, model: str = None) -> str:
     """Send a translation request to the persistent worker subprocess."""
     try:
-        proc = _get_translate_worker(engine)
+        model = _normalise_local_model(engine, model)
+        proc = _get_translate_worker(engine, model)
         if proc is None:
             return f"[NLLB unavailable - worker script not found]"
-        req = json.dumps({"engine": engine, "text": text, "src": src, "tgt": tgt})
+        req = json.dumps({"engine": engine, "model": model, "text": text, "src": src, "tgt": tgt})
         proc.stdin.write(req + "\n")
         proc.stdin.flush()
         line = proc.stdout.readline()
@@ -239,9 +254,9 @@ def _call_translate_worker(engine: str, text: str, src: str, tgt: str) -> str:
         return f"[NLLB error: {e}]"
 
 
-def _translate_nllb(text, src, tgt):
+def _translate_nllb(text, src, tgt, model=None):
     """Translate using Meta's NLLB-200 model via persistent subprocess."""
-    return _call_translate_worker("nllb", text, src, tgt)
+    return _call_translate_worker("nllb", text, src, tgt, model)
 
 
 def _translate_marian(text, src, tgt):
@@ -249,15 +264,30 @@ def _translate_marian(text, src, tgt):
     return _call_translate_worker("marian", text, src, tgt)
 
 
-def _translate_gpt(text, src, tgt):
+def _normalise_gpt_model(model: str = None) -> str:
+    label = (model or "").strip().lower()
+    if label in {"gpt-4", "gpt4"}:
+        return "gpt-4o"
+    if label in {"gpt-3.5", "gpt-3.5-turbo", "gpt3.5"}:
+        return "gpt-3.5-turbo"
+    return model or "gpt-4o-mini"
+
+
+def _normalise_gemini_model(model: str = None) -> str:
+    label = (model or "").strip()
+    return label if label and "/" not in label else "gemini-2.0-flash"
+
+
+def _translate_gpt(text, src, tgt, model=None):
     if not OPENAI_API_KEY:
         return f"[GPT translation unavailable - set OPENAI_API_KEY]"
     try:
+        model_name = _normalise_gpt_model(model)
         resp = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
             json={
-                "model": "gpt-4o-mini",
+                "model": model_name,
                 "messages": [
                     {"role": "system", "content": f"Translate from {src} to {tgt}. Return only translation."},
                     {"role": "user", "content": text},
@@ -274,12 +304,13 @@ def _translate_gpt(text, src, tgt):
         return f"[GPT error: {e}]"
 
 
-def _translate_gemini(text, src, tgt):
+def _translate_gemini(text, src, tgt, model=None):
     if not GEMINI_API_KEY:
         return f"[Gemini translation unavailable - set GEMINI_API_KEY]"
     try:
+        model_name = _normalise_gemini_model(model)
         resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}",
             json={
                 "contents": [{"parts": [{"text": f"Translate from {src} to {tgt}: {text}"}]}],
                 "generationConfig": {"temperature": 0.3},

@@ -135,6 +135,8 @@ def list_providers():
         "providers": [
             {"id": "edge", "name": "Edge TTS (free)", "voices": ["vi-VN-NamMinhNeural", "vi-VN-HoaiMyNeural"]},
             {"id": "google", "name": "Google TTS (free)", "voices": ["vi", "en"]},
+            {"id": "valtec", "name": "Valtec TTS", "voices": ["NF", "SF", "NM1", "SM", "NM2"]},
+            {"id": "capcut", "name": "CapCut TTS", "voices": ["BV074_streaming_dsp|7550087831092251920|sami"]},
             {"id": "azure", "name": "Azure TTS", "voices": ["vi-VN-NamMinhNeural", "vi-VN-HoaiMyNeural"]},
             {"id": "elevenlabs", "name": "ElevenLabs", "voices": ["Rachel", "Domi", "Bella"]},
             {"id": "clone", "name": "Voice Clone (Bark)", "voices": clone_voices or ["Chua co giong clone nao"]},

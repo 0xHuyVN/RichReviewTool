@@ -3,11 +3,18 @@ import json
 import os as _os
 
 
-def _load_nllb():
+def _load_nllb(model_name=None):
     from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
     import torch
     _local_path = _os.path.expanduser("~/.cache/nllb_manual")
-    model_name = _local_path if _os.path.isdir(_local_path) and _os.path.exists(_os.path.join(_local_path, "pytorch_model.bin")) else "facebook/nllb-200-distilled-600M"
+    allowed = {
+        "facebook/nllb-200-distilled-600M",
+        "facebook/nllb-200-distilled-1.3B",
+    }
+    if _os.path.isdir(_local_path) and _os.path.exists(_os.path.join(_local_path, "pytorch_model.bin")):
+        model_name = _local_path
+    elif model_name not in allowed:
+        model_name = "facebook/nllb-200-distilled-600M"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name, low_cpu_mem_usage=True).to(device)
@@ -73,8 +80,10 @@ def main():
     first = json.loads(sys.stdin.readline())
     engine = first["engine"]
 
+    model_name = first.get("model")
+
     if engine == "nllb":
-        tokenizer, model, device = _load_nllb()
+        tokenizer, model, device = _load_nllb(model_name)
         translate = lambda text, src, tgt: translate_nllb(text, src, tgt, tokenizer, model, device)
     elif engine == "marian":
         tokenizer, model, device = _load_marian()

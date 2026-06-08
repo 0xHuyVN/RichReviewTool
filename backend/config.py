@@ -41,6 +41,9 @@ AZURE_TTS_KEY = os.environ.get("AZURE_TTS_KEY", "")
 AZURE_TTS_REGION = os.environ.get("AZURE_TTS_REGION", "eastus")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 FPT_API_KEY = os.environ.get("FPT_API_KEY", "")
+VALTEC_TTS_DIR = os.environ.get("VALTEC_TTS_DIR", "")
+CAPCUT_TTS_DIR = os.environ.get("CAPCUT_TTS_DIR", str(BASE_DIR / "vendor" / "capcut-tts-api"))
+CAPCUT_SSCRONET_DLL = os.environ.get("CAPCUT_SSCRONET_DLL", "")
 
 VOCAL_SEPARATION_ENABLED = os.environ.get("VOCAL_SEPARATION_ENABLED", "false").lower() == "true"
 MAX_QUEUE_WORKERS = int(os.environ.get("MAX_QUEUE_WORKERS", "1"))
